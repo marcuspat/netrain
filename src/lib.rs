@@ -2,6 +2,7 @@
 
 pub mod packet;
 pub mod matrix_rain;
+pub mod threat_detection;
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -398,47 +399,10 @@ impl RainManager {
     }
 }
 
-pub struct ThreatDetector;
+// Re-export ThreatDetector from threat_detection module
+pub use threat_detection::ThreatDetector;
 
-impl ThreatDetector {
-    pub fn new() -> Self {
-        todo!()
-    }
-
-    pub fn add_connection(&mut self, _ip: std::net::IpAddr, _port: u16) {
-        todo!()
-    }
-
-    pub fn is_port_scan(&self, _ip: std::net::IpAddr) -> bool {
-        todo!()
-    }
-
-    pub fn analyze_packet(&mut self, _packet: &Packet) {
-        todo!()
-    }
-
-    pub fn is_ddos_active(&self) -> bool {
-        todo!()
-    }
-
-    pub fn get_threat_type(&self) -> ThreatType {
-        todo!()
-    }
-
-    pub fn detect_anomaly(&mut self, _packet: &Packet) -> Option<Anomaly> {
-        todo!()
-    }
-
-    pub fn add_threat_indicator(&mut self, _indicator: ThreatIndicator) {
-        todo!()
-    }
-
-    pub fn get_threat_level(&self) -> ThreatLevel {
-        todo!()
-    }
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ThreatType {
     SynFlood,
     PortScan,
@@ -569,9 +533,24 @@ fn create_tcp_packet(_ip: String) -> Packet {
     }
 }
 
-fn create_tcp_packet_with_port(_ip: &str, _port: u16) -> Packet {
-    // Similar to create_tcp_packet
-    create_tcp_packet(_ip.to_string())
+fn create_tcp_packet_with_port(_ip: &str, port: u16) -> Packet {
+    // Create a TCP packet with specific destination port
+    let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
+    // Add source/dest IP (simplified - just padding)
+    data.extend_from_slice(&[0x00; 10]);
+    // Add TCP header - source port at 20-21, dest port at 22-23
+    data.push(0x00); // Source port high byte (20)
+    data.push(0x50); // Source port low byte (port 80) (21)
+    let port_bytes = port.to_be_bytes();
+    data.push(port_bytes[0]); // Dest port high byte (22)
+    data.push(port_bytes[1]); // Dest port low byte (23)
+    // Fill rest with zeros
+    data.extend_from_slice(&[0x00; 36]);
+    Packet {
+        data,
+        length: 60,
+        timestamp: 0,
+    }
 }
 
 fn create_udp_packet(_ip: &str) -> Packet {
