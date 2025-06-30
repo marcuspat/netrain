@@ -1,6 +1,7 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
 pub mod packet;
+pub mod matrix_rain;
 use std::collections::HashMap;
 
 #[cfg(test)]
