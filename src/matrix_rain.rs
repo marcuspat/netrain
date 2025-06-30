@@ -50,8 +50,8 @@ impl RainColumn {
 }
 
 pub struct MatrixRain {
-    width: usize,
-    height: usize,
+    pub width: usize,
+    pub height: usize,
     columns: HashMap<usize, RainColumn>,
     traffic_rate: f32,
 }

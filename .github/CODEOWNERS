@@ -1,0 +1,38 @@
+# CODEOWNERS for NetRain
+# These owners will be the default owners for everything in the repo.
+# Unless a later match takes precedence, they will be requested for
+# review when someone opens a pull request.
+
+# Default owners for everything in the repo
+* @NetRain-maintainers
+
+# Core library code
+/src/lib.rs @NetRain-maintainers @NetRain-core
+/src/packet.rs @NetRain-maintainers @NetRain-core
+/src/threat_detection.rs @NetRain-maintainers @NetRain-security
+
+# Main application
+/src/main.rs @NetRain-maintainers
+
+# UI/Visualization
+/src/matrix_rain.rs @NetRain-maintainers @NetRain-ui
+
+# Tests
+/tests/ @NetRain-maintainers @NetRain-qa
+/tests/fixtures/ @NetRain-maintainers @NetRain-qa
+
+# CI/CD and GitHub configuration
+/.github/ @NetRain-maintainers @NetRain-devops
+/.github/workflows/ @NetRain-maintainers @NetRain-devops
+
+# Build configuration
+/Cargo.toml @NetRain-maintainers @NetRain-core
+/Cargo.lock @NetRain-maintainers @NetRain-core
+
+# Documentation
+/*.md @NetRain-maintainers @NetRain-docs
+/CHANGELOG.md @NetRain-maintainers
+
+# Security-sensitive files
+/.github/dependabot.yml @NetRain-maintainers @NetRain-security
+/.github/workflows/security-audit.yml @NetRain-maintainers @NetRain-security
