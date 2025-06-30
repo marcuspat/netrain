@@ -178,55 +178,114 @@ fn main() -> Result<()> {
         let perf_monitor_clone = Arc::clone(&perf_monitor);
 
         thread::spawn(move || {
-            if let Ok(device) = Device::lookup() {
-                if let Some(device) = device {
-                    if let Ok(mut cap) = Capture::from_device(device).unwrap()
-                        .promisc(true)
-                        .snaplen(5000)
-                        .open()
-                    {
-                        while let Ok(packet) = cap.next_packet() {
-                            let data = packet.data.to_vec();
-                            
-                            // Update traffic counter
-                            *traffic_counter_clone.lock().unwrap() += 1;
-                            
-                            // Update performance monitor
-                            perf_monitor_clone.increment_packet();
-                            
-                            // Parse packet using optimized version
-                            if let Ok(parsed) = parse_packet_optimized(&data) {
-                                // Update protocol stats using optimized version
-                                let protocol = classify_protocol_optimized(&parsed);
-                                protocol_stats_clone.lock().unwrap().add_packet(protocol, parsed.length);
-                                
-                                // Check for threats
-                                threat_detector_clone.lock().unwrap().analyze_packet(&parsed);
-                                
-                                // Update matrix rain with traffic
-                                let mut rain = matrix_rain_clone.lock().unwrap();
-                                let x = rand::random::<usize>() % rain.width;
-                                rain.add_column(x);
-                                
-                                // Log packet with more details
-                                let mut log = packet_log_clone.lock().unwrap();
-                                let timestamp = chrono::Local::now().format("%H:%M:%S");
-                                log.push_front(format!(
-                                    "[{}] {:?} {} → {} ({} bytes)",
-                                    timestamp,
-                                    protocol,
-                                    parsed.src_ip,
-                                    parsed.dst_ip,
-                                    parsed.length
-                                ));
-                                if log.len() > 20 {
-                                    log.pop_back();
+            // First, try to find and list available devices
+            match Device::list() {
+                Ok(devices) => {
+                    eprintln!("🔍 Available network devices:");
+                    for device in &devices {
+                        eprintln!("  - {} ({})", 
+                            device.name, 
+                            device.desc.as_ref().unwrap_or(&"No description".to_string())
+                        );
+                    }
+                    
+                    // Try to find en0 (active WiFi interface) first
+                    let target_device = devices.iter()
+                        .find(|d| d.name == "en0")
+                        .or_else(|| devices.iter().find(|d| d.name.starts_with("en")))
+                        .or_else(|| devices.first());
+                    
+                    if let Some(device) = target_device {
+                        eprintln!("🎯 Using device: {} ({})", 
+                            device.name, 
+                            device.desc.as_ref().unwrap_or(&"No description".to_string())
+                        );
+                        
+                        match Capture::from_device(device.clone()) {
+                            Ok(cap_builder) => {
+                                match cap_builder
+                                    .promisc(true)
+                                    .snaplen(5000)
+                                    .timeout(1000) // Add timeout
+                                    .open() {
+                                    Ok(mut cap) => {
+                                        eprintln!("✅ Successfully opened packet capture on {}", device.name);
+                                        
+                                        // Set a filter to capture common traffic
+                                        if let Err(e) = cap.filter("ip", true) {
+                                            eprintln!("⚠️  Warning: Could not set filter: {}", e);
+                                        }
+                                        
+                                        loop {
+                                            match cap.next_packet() {
+                                                Ok(packet) => {
+                                                    let data = packet.data.to_vec();
+                                                    
+                                                    // Update traffic counter
+                                                    *traffic_counter_clone.lock().unwrap() += 1;
+                                                    
+                                                    // Update performance monitor
+                                                    perf_monitor_clone.increment_packet();
+                                                    
+                                                    // Parse packet using optimized version
+                                                    if let Ok(parsed) = parse_packet_optimized(&data) {
+                                                        // Update protocol stats using optimized version
+                                                        let protocol = classify_protocol_optimized(&parsed);
+                                                        protocol_stats_clone.lock().unwrap().add_packet(protocol, parsed.length);
+                                                        
+                                                        // Check for threats
+                                                        threat_detector_clone.lock().unwrap().analyze_packet(&parsed);
+                                                        
+                                                        // Update matrix rain with traffic
+                                                        let mut rain = matrix_rain_clone.lock().unwrap();
+                                                        let x = rand::random::<usize>() % rain.width;
+                                                        rain.add_column(x);
+                                                        
+                                                        // Log packet with more details
+                                                        let mut log = packet_log_clone.lock().unwrap();
+                                                        let timestamp = chrono::Local::now().format("%H:%M:%S");
+                                                        log.push_front(format!(
+                                                            "[{}] {:?} {} → {} ({} bytes)",
+                                                            timestamp,
+                                                            protocol,
+                                                            parsed.src_ip,
+                                                            parsed.dst_ip,
+                                                            parsed.length
+                                                        ));
+                                                        if log.len() > 20 {
+                                                            log.pop_back();
+                                                        }
+                                                    }
+                                                }
+                                                Err(pcap::Error::TimeoutExpired) => {
+                                                    // Timeout is normal, continue
+                                                    continue;
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("❌ Error reading packet: {}", e);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("❌ Failed to open capture on {}: {}", device.name, e);
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                eprintln!("❌ Failed to create capture from device {}: {}", device.name, e);
+                            }
                         }
+                    } else {
+                        eprintln!("❌ No suitable network device found");
                     }
                 }
+                Err(e) => {
+                    eprintln!("❌ Failed to list network devices: {}", e);
+                }
             }
+            eprintln!("🔄 Packet capture thread exiting");
         });
     }
 
