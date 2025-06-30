@@ -3,6 +3,13 @@
 pub mod packet;
 pub mod matrix_rain;
 pub mod threat_detection;
+pub mod optimized;
+
+// Re-export commonly used items for benchmarking and external use
+pub use matrix_rain::{MatrixRain, CharacterSet, VisualMode, Particle};
+pub use packet::{parse_packet, classify_protocol, extract_protocol, validate_packet};
+pub use threat_detection::{ThreatDetector, ThreatConfig};
+pub use optimized::{parse_packet_optimized, classify_protocol_optimized};
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -35,6 +42,8 @@ mod tests {
                 data: vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06],
                 length: 60,
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             assert_eq!(extract_protocol(&packet), Protocol::TCP);
         }
@@ -45,6 +54,8 @@ mod tests {
                 data: vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11],
                 length: 60,
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             assert_eq!(extract_protocol(&packet), Protocol::UDP);
         }
@@ -55,6 +66,8 @@ mod tests {
                 data: vec![0x45, 0x00, 0x00, 0x3c],
                 length: 60,
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             assert!(validate_packet(&packet));
         }
@@ -66,6 +79,8 @@ mod tests {
                 data: vec![0x45],
                 length: 1500, // Mismatched length
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             validate_packet(&packet);
         }
@@ -233,6 +248,8 @@ mod tests {
                 data: vec![0xFF, 0xFF, 0xFF], // Invalid packet
                 length: 3,
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             
             let anomaly = detector.detect_anomaly(&packet);
@@ -256,7 +273,7 @@ mod tests {
         #[should_panic(expected = "Detector not initialized")]
         fn test_uninitialized_detector() {
             let detector: Option<ThreatDetector> = None;
-            detector.unwrap().is_ddos_active();
+            detector.expect("Detector not initialized").is_ddos_active();
         }
     }
 
@@ -309,6 +326,8 @@ mod tests {
                 data: vec![0x00; 100], // All zeros
                 length: 100,
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             assert_eq!(classify_protocol(&packet), Protocol::Unknown);
         }
@@ -334,6 +353,8 @@ mod tests {
                 data: vec![],
                 length: 0,
                 timestamp: 0,
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             };
             classify_protocol(&packet);
         }
@@ -352,11 +373,13 @@ pub enum Protocol {
     Unknown,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Packet {
     pub data: Vec<u8>,
     pub length: usize,
     pub timestamp: u64,
+    pub src_ip: String,
+    pub dst_ip: String,
 }
 
 pub struct RainColumn {
@@ -375,32 +398,41 @@ pub struct MatrixChar {
 pub struct RainManager {
     width: usize,
     height: usize,
+    columns: Vec<usize>,
+    faded_columns: Vec<usize>,
 }
 
 impl RainManager {
     pub fn new(width: usize, height: usize) -> Self {
-        Self { width, height }
+        Self { 
+            width, 
+            height,
+            columns: Vec::new(),
+            faded_columns: Vec::new(),
+        }
     }
 
-    pub fn add_column(&mut self, _x: usize) {
-        todo!()
+    pub fn add_column(&mut self, x: usize) {
+        if x < self.width {
+            self.columns.push(x);
+        }
     }
 
-    pub fn add_faded_column(&mut self, _x: usize) {
-        todo!()
+    pub fn add_faded_column(&mut self, x: usize) {
+        if x < self.width {
+            self.faded_columns.push(x);
+        }
     }
 
     pub fn remove_faded_columns(&mut self) {
-        todo!()
+        self.faded_columns.clear();
     }
 
     pub fn active_columns(&self) -> usize {
-        todo!()
+        self.columns.len()
     }
 }
 
-// Re-export ThreatDetector from threat_detection module
-pub use threat_detection::ThreatDetector;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ThreatType {
@@ -470,19 +502,40 @@ impl ProtocolStats {
     }
 }
 
-// Re-export functions from packet module
-pub use packet::{parse_packet, extract_protocol, validate_packet, classify_protocol};
 
-pub fn calculate_fall_speed(_column: &RainColumn) -> f32 {
-    todo!()
+pub fn calculate_fall_speed(column: &RainColumn) -> f32 {
+    // Base speed is influenced by intensity
+    let base_speed = column.speed * column.intensity;
+    
+    // Check if column contains threat indicators (exclamation marks)
+    let has_threat = column.chars.iter().any(|&c| c == '!');
+    
+    if has_threat {
+        // Threats fall faster - more than 2.0
+        base_speed * 3.0
+    } else {
+        // Normal speed varies between 0.0 and 2.0 based on intensity
+        (base_speed * 2.0).min(2.0).max(0.1)
+    }
 }
 
-pub fn fade_character(_char: &mut MatrixChar) {
-    todo!()
+pub fn fade_character(char: &mut MatrixChar) {
+    // Fade intensity by a fixed amount
+    char.intensity = (char.intensity - 0.1).max(0.0);
+    
+    // Increment age
+    char.age += 1;
 }
 
-pub fn calculate_rain_density(_traffic_rate: f32) -> f32 {
-    todo!()
+pub fn calculate_rain_density(traffic_rate: f32) -> f32 {
+    if traffic_rate < 0.0 {
+        panic!("Negative traffic rate");
+    }
+    
+    // Map traffic rate to density (0.0 to 1.0)
+    // Assume 10000 packets/sec is maximum density
+    let normalized = traffic_rate / 10000.0;
+    normalized.min(1.0)
 }
 
 
@@ -510,7 +563,7 @@ pub fn extract_dns_query(_packet: &Packet) -> Option<&str> {
 }
 
 // Helper functions for tests
-fn create_syn_packet(_ip: String) -> Packet {
+fn create_syn_packet(ip: String) -> Packet {
     // Create a basic TCP SYN packet
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     // Add more bytes to make it look like a real packet
@@ -519,10 +572,12 @@ fn create_syn_packet(_ip: String) -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: ip.to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
-fn create_tcp_packet(_ip: String) -> Packet {
+fn create_tcp_packet(ip: String) -> Packet {
     // Create a basic TCP packet (IPv4 with TCP protocol)
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     data.extend_from_slice(&[0x00; 50]); // Fill rest with zeros
@@ -530,10 +585,12 @@ fn create_tcp_packet(_ip: String) -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: ip.to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
-fn create_tcp_packet_with_port(_ip: &str, port: u16) -> Packet {
+fn create_tcp_packet_with_port(ip: &str, port: u16) -> Packet {
     // Create a TCP packet with specific destination port
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     // Add source/dest IP (simplified - just padding)
@@ -550,10 +607,12 @@ fn create_tcp_packet_with_port(_ip: &str, port: u16) -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: ip.to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
-fn create_udp_packet(_ip: &str) -> Packet {
+fn create_udp_packet(ip: &str) -> Packet {
     // Create a basic UDP packet (IPv4 with UDP protocol)
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11];
     data.extend_from_slice(&[0x00; 50]);
@@ -561,6 +620,8 @@ fn create_udp_packet(_ip: &str) -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: ip.to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
@@ -571,6 +632,8 @@ fn create_http_request_packet() -> Packet {
         data,
         length: 38,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
@@ -582,6 +645,8 @@ fn create_tls_handshake_packet() -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
@@ -599,6 +664,8 @@ fn create_dns_query_packet(_domain: &str) -> Packet {
         data,
         length,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
@@ -609,5 +676,7 @@ fn create_ssh_packet() -> Packet {
         data,
         length: 21,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }

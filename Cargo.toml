@@ -18,6 +18,7 @@ chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rand = "0.8"
+once_cell = "1.19"
 
 [dev-dependencies]
 mockall = "0.12"
@@ -25,6 +26,6 @@ tempfile = "3"
 proptest = "1.4"
 criterion = "0.5"
 
-# [[bench]]
-# name = "packet_parsing"
-# harness = false
+[[bench]]
+name = "benchmarks"
+harness = false

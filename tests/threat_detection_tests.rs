@@ -10,6 +10,8 @@ fn create_tcp_packet() -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
@@ -21,6 +23,8 @@ fn create_syn_packet() -> Packet {
         data,
         length: 60,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     }
 }
 
@@ -68,6 +72,8 @@ fn test_detect_anomaly() {
         data: vec![0x45, 0x00],
         length: 2,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     };
     let anomaly = detector.detect_anomaly(&small_packet);
     assert!(anomaly.is_some());
@@ -100,6 +106,8 @@ fn test_threat_detector_alert_generation() {
         data: vec![0xFF; 10], // All 0xFF = malformed
         length: 10,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     };
     
     let alert = detector.detect_anomaly(&high_severity_packet);
@@ -116,6 +124,8 @@ fn test_threat_detector_alert_generation() {
         data: unusual_port_packet,
         length: 60,
         timestamp: 0,
+        src_ip: "192.168.1.1".to_string(),
+        dst_ip: "192.168.1.2".to_string(),
     };
     
     let alert = detector.detect_anomaly(&packet);

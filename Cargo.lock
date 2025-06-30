@@ -653,6 +653,7 @@ dependencies = [
  "criterion",
  "crossterm",
  "mockall",
+ "once_cell",
  "pcap",
  "proptest",
  "rand 0.8.5",

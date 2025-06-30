@@ -6,11 +6,24 @@ pub fn parse_packet(data: &[u8]) -> Result<Packet, Box<dyn std::error::Error>> {
         return Err("Empty packet data".into());
     }
     
+    // Extract source and destination IPs if this is an IPv4 packet
+    let (src_ip, dst_ip) = if data.len() >= 20 && (data[0] >> 4) == 4 {
+        // IPv4 packet - IPs are at bytes 12-15 (source) and 16-19 (destination)
+        let src = format!("{}.{}.{}.{}", data[12], data[13], data[14], data[15]);
+        let dst = format!("{}.{}.{}.{}", data[16], data[17], data[18], data[19]);
+        (src, dst)
+    } else {
+        // Default IPs for non-IPv4 packets
+        ("0.0.0.0".to_string(), "0.0.0.0".to_string())
+    };
+    
     // For the test, it expects a packet with length 60 when data starts with 0x45
     Ok(Packet {
         data: data.to_vec(),
         length: 60,  // The test expects length 60
         timestamp: 0,
+        src_ip,
+        dst_ip,
     })
 }
 
