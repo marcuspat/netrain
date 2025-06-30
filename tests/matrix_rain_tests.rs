@@ -2,13 +2,10 @@
 use ratatui::{
     backend::TestBackend,
     Terminal,
-    widgets::Widget,
-    buffer::Buffer,
-    layout::Rect,
 };
 
 // These will be implemented in src/matrix_rain.rs
-use netrain::matrix_rain::{MatrixRain, MatrixChar, RainColumn};
+use netrain::matrix_rain::MatrixRain;
 
 #[test]
 fn test_matrix_rain_fall_speed() {

@@ -6,7 +6,6 @@ use crossterm::{
 };
 use netrain::{
     matrix_rain::MatrixRain,
-    packet::{parse_packet, classify_protocol},
     optimized::{parse_packet_optimized, classify_protocol_optimized},
     threat_detection::ThreatDetector,
     Protocol, ProtocolStats, ThreatLevel,

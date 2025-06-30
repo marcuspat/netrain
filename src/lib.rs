@@ -397,6 +397,7 @@ pub struct MatrixChar {
 
 pub struct RainManager {
     width: usize,
+    #[allow(dead_code)]
     height: usize,
     columns: Vec<usize>,
     faded_columns: Vec<usize>,
@@ -563,6 +564,7 @@ pub fn extract_dns_query(_packet: &Packet) -> Option<&str> {
 }
 
 // Helper functions for tests
+#[cfg(test)]
 fn create_syn_packet(ip: String) -> Packet {
     // Create a basic TCP SYN packet
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
@@ -577,6 +579,7 @@ fn create_syn_packet(ip: String) -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_tcp_packet(ip: String) -> Packet {
     // Create a basic TCP packet (IPv4 with TCP protocol)
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
@@ -590,6 +593,7 @@ fn create_tcp_packet(ip: String) -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_tcp_packet_with_port(ip: &str, port: u16) -> Packet {
     // Create a TCP packet with specific destination port
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
@@ -612,6 +616,7 @@ fn create_tcp_packet_with_port(ip: &str, port: u16) -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_udp_packet(ip: &str) -> Packet {
     // Create a basic UDP packet (IPv4 with UDP protocol)
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11];
@@ -625,6 +630,7 @@ fn create_udp_packet(ip: &str) -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_http_request_packet() -> Packet {
     // Create an HTTP GET request packet
     let data = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec();
@@ -637,6 +643,7 @@ fn create_http_request_packet() -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_tls_handshake_packet() -> Packet {
     // Create a TLS handshake packet (starts with 0x16)
     let mut data = vec![0x16, 0x03, 0x01, 0x00, 0x00]; // TLS handshake
@@ -650,6 +657,7 @@ fn create_tls_handshake_packet() -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_dns_query_packet(_domain: &str) -> Packet {
     // Create a simplified DNS query packet
     let mut data = vec![0x00, 0x00, 0x01, 0x00]; // DNS header flags
@@ -669,6 +677,7 @@ fn create_dns_query_packet(_domain: &str) -> Packet {
     }
 }
 
+#[cfg(test)]
 fn create_ssh_packet() -> Packet {
     // Create an SSH packet
     let data = b"SSH-2.0-OpenSSH_8.2\r\n".to_vec();

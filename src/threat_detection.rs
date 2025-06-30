@@ -36,6 +36,7 @@ impl Default for ThreatConfig {
 /// Connection record for tracking port access
 #[derive(Debug, Clone)]
 struct ConnectionRecord {
+    #[allow(dead_code)]
     source_ip: IpAddr,
     port: u16,
     timestamp: Instant,
