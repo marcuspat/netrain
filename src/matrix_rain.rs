@@ -32,7 +32,7 @@ pub struct RainColumn {
 }
 
 impl RainColumn {
-    fn new(x: usize, height: usize) -> Self {
+    fn new(x: usize, _height: usize) -> Self {
         let mut rng = rand::thread_rng();
         let chars = vec![
             MatrixChar::new(
