@@ -1,0 +1,10 @@
+PCAP_PLACEHOLDER: port_scan.pcap
+This file would contain:
+- Sequential SYN packets from single source IP (192.168.1.100)
+- Target ports: 1-65535 (or subset like 1-10000)
+- Rapid succession with minimal delays
+- Some RST responses from closed ports
+- Some SYN-ACK from open ports
+- No complete TCP handshakes
+- Approximately 1000-5000 packets
+- Time span: 10-30 seconds

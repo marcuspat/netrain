@@ -1,0 +1,30 @@
+[package]
+name = "netrain"
+version = "0.1.0"
+edition = "2021"
+authors = ["NetRain Contributors"]
+description = "Matrix-style network packet monitor with threat detection"
+license = "MIT"
+repository = "https://github.com/yourusername/netrain"
+
+[dependencies]
+pcap = "1.1"
+ratatui = "0.25"
+crossterm = "0.27"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8"
+
+[dev-dependencies]
+mockall = "0.12"
+tempfile = "3"
+proptest = "1.4"
+criterion = "0.5"
+
+# [[bench]]
+# name = "packet_parsing"
+# harness = false

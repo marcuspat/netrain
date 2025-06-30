@@ -1,0 +1,10 @@
+PCAP_PLACEHOLDER: normal_traffic.pcap
+This file would contain:
+- Mixed TCP/UDP traffic on common ports (80, 443, 53, 22)
+- Regular HTTP requests and responses
+- DNS queries and responses
+- SSH connections
+- Normal packet size distribution
+- Typical inter-packet delays
+- Approximately 500-1000 packets
+- Time span: 60 seconds of capture

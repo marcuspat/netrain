@@ -1,0 +1,14 @@
+PCAP_PLACEHOLDER: mixed_protocols.pcap
+This file would contain:
+- HTTP traffic (GET, POST requests with responses)
+- HTTPS/TLS handshakes and encrypted data
+- DNS queries (A, AAAA, MX records)
+- SSH sessions (handshake and encrypted data)
+- FTP control and data connections
+- SMTP email traffic
+- Various packet sizes (64 bytes to 1500 bytes)
+- Realistic timing patterns
+- Some malformed packets
+- Some packets on unusual ports (31337, 12345)
+- Approximately 2000-3000 packets
+- Time span: 120 seconds

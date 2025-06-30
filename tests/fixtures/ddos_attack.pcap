@@ -1,0 +1,11 @@
+PCAP_PLACEHOLDER: ddos_attack.pcap
+This file would contain:
+- SYN flood attack pattern
+- Multiple source IPs (50-200 unique sources)
+- Target: Single destination IP and port (e.g., 10.0.0.1:80)
+- High packet rate (1000+ packets/second)
+- Small packet sizes (typical SYN packet)
+- Spoofed source addresses
+- No completed connections
+- Approximately 10000+ packets
+- Time span: 10-20 seconds
