@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2025-01-01
+### Fixed
+- Fixed packet dump display with broken Unicode characters
+- Restored hex dump to show packet contents
+- Added proper spacing between packet info and hex dump
+- Simplified display without decorative lines
+
+### Changed
+- Clarified Rust requirement in README - cargo doesn't come by default
+
 ## [0.2.6] - 2025-01-01
 ### Fixed
 - Removed duplicate "Q: Quit | D: Demo Mode" help text from bottom of UI
@@ -76,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-commit hooks for running tests
 - GitHub Actions CI workflow for Rust projects
 
-[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/marcuspat/netrain/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/marcuspat/netrain/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/marcuspat/netrain/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/marcuspat/netrain/compare/v0.2.3...v0.2.4
