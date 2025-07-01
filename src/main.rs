@@ -132,7 +132,6 @@ fn main() -> Result<()> {
         println!("  --help       Show this help message");
         println!("\nControls:");
         println!("  Q            Quit the application");
-        println!("  D            Toggle demo mode");
         return Ok(());
     }
     
@@ -477,9 +476,6 @@ fn main() -> Result<()> {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                    KeyCode::Char('d') | KeyCode::Char('D') => {
-                        // Demo mode already active
-                    }
                     _ => {}
                 }
             } else if let Event::Resize(_width, _height) = event::read()? {
