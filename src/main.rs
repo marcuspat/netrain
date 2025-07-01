@@ -9,6 +9,7 @@ use netrain::{
     simple_matrix::SimpleMatrixRain,
     optimized::{parse_packet_optimized, classify_protocol_optimized},
     threat_detection::ThreatDetector,
+    protocol_activity::ProtocolActivityTracker,
     Protocol, ProtocolStats, ThreatLevel,
 };
 use pcap::{Capture, Device};
@@ -202,6 +203,7 @@ fn main() -> Result<()> {
     let traffic_counter = Arc::new(Mutex::new(0u64));
     let perf_monitor = Arc::new(PerformanceMonitor::new());
     let raw_packets = Arc::new(Mutex::new(VecDeque::new())); // Store raw packet data for hex dump
+    let protocol_activity = Arc::new(Mutex::new(ProtocolActivityTracker::new()));
 
     // Start packet capture in background thread
     if demo_mode {
@@ -212,6 +214,7 @@ fn main() -> Result<()> {
         let matrix_rain_clone = Arc::clone(&matrix_rain);
         let traffic_counter_clone = Arc::clone(&traffic_counter);
         let perf_monitor_clone = Arc::clone(&perf_monitor);
+        let protocol_activity_clone = Arc::clone(&protocol_activity);
         let demo_matrix_width = matrix_width;
         
         thread::spawn(move || {
@@ -237,6 +240,7 @@ fn main() -> Result<()> {
                 *traffic_counter_clone.lock().unwrap() += 1;
                 perf_monitor_clone.increment_packet();
                 protocol_stats_clone.lock().unwrap().add_packet(protocol, size);
+                protocol_activity_clone.lock().unwrap().record_packet(protocol);
                 
                 // Update matrix rain
                 let mut rain = matrix_rain_clone.lock().unwrap();
@@ -284,6 +288,7 @@ fn main() -> Result<()> {
         let traffic_counter_clone = Arc::clone(&traffic_counter);
         let perf_monitor_clone = Arc::clone(&perf_monitor);
         let raw_packets_clone = Arc::clone(&raw_packets);
+        let protocol_activity_clone = Arc::clone(&protocol_activity);
         let capture_matrix_width = matrix_width;
 
         thread::spawn(move || {
@@ -326,6 +331,7 @@ fn main() -> Result<()> {
                                                         // Update protocol stats using optimized version
                                                         let protocol = classify_protocol_optimized(&parsed);
                                                         protocol_stats_clone.lock().unwrap().add_packet(protocol, parsed.length);
+                                                        protocol_activity_clone.lock().unwrap().record_packet(protocol);
                                                         
                                                         // Check for threats
                                                         threat_detector_clone.lock().unwrap().analyze_packet(&parsed);
@@ -419,6 +425,7 @@ fn main() -> Result<()> {
     // Main render loop
     let mut last_update = Instant::now();
     let mut last_traffic_update = Instant::now();
+    let mut last_activity_tick = Instant::now();
     let mut _last_frame_time = Instant::now();
     let _frame_time = Duration::from_millis(16); // Target 60 FPS
     
@@ -454,6 +461,12 @@ fn main() -> Result<()> {
             // SimpleMatrixRain doesn't have set_traffic_rate, just reset counter
             *traffic_counter.lock().unwrap() = 0; // Reset counter
             last_traffic_update = now;
+        }
+        
+        // Update protocol activity tracker every second
+        if now.duration_since(last_activity_tick) >= Duration::from_secs(1) {
+            protocol_activity.lock().unwrap().tick();
+            last_activity_tick = now;
         }
 
         // Check threat status (SimpleMatrixRain doesn't have threat visualization yet)
@@ -569,21 +582,53 @@ fn main() -> Result<()> {
             f.render_widget(log_list, matrix_chunks[2]);
             drop(log);
             
-            // Network activity graph at bottom
+            // Network activity graph at bottom - color-coded by protocol
             use ratatui::widgets::Sparkline;
-            let sparkline_data: Vec<u64> = (0..50).map(|i| {
-                (traffic_rate + (i as u64 * 3) % 20) * ((i % 3) + 1)
-            }).collect();
             
-            let sparkline = Sparkline::default()
-                .data(&sparkline_data)
-                .max(100)
-                .style(Style::default().fg(Color::Cyan))
-                .block(Block::default()
-                    .borders(Borders::TOP)
-                    .border_style(Style::default().fg(Color::DarkGray))
-                    .title(" [ NETWORK ACTIVITY ] "));
-            f.render_widget(sparkline, matrix_chunks[3]);
+            // Get protocol activity data
+            let activity = protocol_activity.lock().unwrap();
+            let _history = activity.get_history();
+            
+            // Create a layout for multiple protocol sparklines
+            let protocol_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(16),  // TCP
+                    Constraint::Percentage(16),  // UDP
+                    Constraint::Percentage(17),  // HTTP
+                    Constraint::Percentage(17),  // HTTPS
+                    Constraint::Percentage(17),  // DNS
+                    Constraint::Percentage(17),  // SSH
+                ])
+                .split(matrix_chunks[3]);
+            
+            // Define protocol colors matching packet log
+            let protocols = [
+                (Protocol::TCP, Color::Green, "TCP"),
+                (Protocol::UDP, Color::LightGreen, "UDP"),
+                (Protocol::HTTP, Color::Blue, "HTTP"),
+                (Protocol::HTTPS, Color::Cyan, "HTTPS"),
+                (Protocol::DNS, Color::Yellow, "DNS"),
+                (Protocol::SSH, Color::Magenta, "SSH"),
+            ];
+            
+            // Render sparkline for each protocol
+            for (i, (protocol, color, name)) in protocols.iter().enumerate() {
+                let data = activity.get_sparkline_data(*protocol);
+                let max_val = activity.get_max_value().max(1);
+                
+                let sparkline = Sparkline::default()
+                    .data(&data)
+                    .max(max_val)
+                    .style(Style::default().fg(*color))
+                    .block(Block::default()
+                        .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+                        .border_style(Style::default().fg(Color::DarkGray))
+                        .title(format!(" {} ", name)));
+                        
+                f.render_widget(sparkline, protocol_chunks[i]);
+            }
+            drop(activity);
 
             // Right panel - properly organized layout
             let right_chunks = Layout::default()
@@ -630,23 +675,26 @@ fn main() -> Result<()> {
             let total_packets = stats.get_count(Protocol::TCP) + 
                                     stats.get_count(Protocol::UDP) + 
                                     stats.get_count(Protocol::HTTP) + 
+                                    stats.get_count(Protocol::HTTPS) +
                                     stats.get_count(Protocol::DNS) + 
                                     stats.get_count(Protocol::SSH);
             
             let protocol_items: Vec<ListItem> = vec![
-                ListItem::new(format!("TCP:  {} pkt", stats.get_count(Protocol::TCP)))
-                    .style(Style::default().fg(Color::Yellow)),
-                ListItem::new(format!("UDP:  {} pkt", stats.get_count(Protocol::UDP)))
-                    .style(Style::default().fg(Color::Blue)),
-                ListItem::new(format!("HTTP: {} pkt", stats.get_count(Protocol::HTTP)))
+                ListItem::new(format!("TCP:   {} pkt", stats.get_count(Protocol::TCP)))
                     .style(Style::default().fg(Color::Green)),
-                ListItem::new(format!("DNS:  {} pkt", stats.get_count(Protocol::DNS)))
-                    .style(Style::default().fg(Color::Magenta)),
-                ListItem::new(format!("SSH:  {} pkt", stats.get_count(Protocol::SSH)))
+                ListItem::new(format!("UDP:   {} pkt", stats.get_count(Protocol::UDP)))
+                    .style(Style::default().fg(Color::LightGreen)),
+                ListItem::new(format!("HTTP:  {} pkt", stats.get_count(Protocol::HTTP)))
+                    .style(Style::default().fg(Color::Blue)),
+                ListItem::new(format!("HTTPS: {} pkt", stats.get_count(Protocol::HTTPS)))
                     .style(Style::default().fg(Color::Cyan)),
+                ListItem::new(format!("DNS:   {} pkt", stats.get_count(Protocol::DNS)))
+                    .style(Style::default().fg(Color::Yellow)),
+                ListItem::new(format!("SSH:   {} pkt", stats.get_count(Protocol::SSH)))
+                    .style(Style::default().fg(Color::Magenta)),
                 ListItem::new(format!("----------------"))
                     .style(Style::default().fg(Color::DarkGray)),
-                ListItem::new(format!("TOT:  {} pkt", total_packets))
+                ListItem::new(format!("TOT:   {} pkt", total_packets))
                     .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             ];
             

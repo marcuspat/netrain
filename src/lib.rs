@@ -5,6 +5,7 @@ pub mod matrix_rain;
 pub mod simple_matrix;
 pub mod threat_detection;
 pub mod optimized;
+pub mod protocol_activity;
 
 // Re-export commonly used items for benchmarking and external use
 pub use matrix_rain::{MatrixRain, CharacterSet, VisualMode, Particle};
