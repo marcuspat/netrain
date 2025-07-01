@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Published to crates.io - now available via `cargo install netrain`
+## [0.2.1] - 2025-01-01
+### Fixed
+- Added clear error messages when running without proper permissions
+- Fixed empty interface issue when packet capture fails
+- Improved user experience for crates.io installation
+
+### Changed
+- Updated README with clearer sudo/permission requirements
 
 ## [0.2.0] - 2025-01-01
 ### Added
@@ -41,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-commit hooks for running tests
 - GitHub Actions CI workflow for Rust projects
 
-[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/marcuspat/netrain/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/marcuspat/netrain/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/marcuspat/netrain/releases/tag/v0.1.0
