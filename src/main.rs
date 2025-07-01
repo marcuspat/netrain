@@ -799,10 +799,7 @@ fn main() -> Result<()> {
 
 
             // Raw packet dump in right panel
-            let mut packet_dump_text = vec![
-                Line::from(Span::styled("RAW PACKET DATA:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
-                Line::from(""),
-            ];
+            let mut packet_dump_text = vec![];
             
             // Get the actual raw packet data
             let raw = raw_packets.lock().unwrap();
