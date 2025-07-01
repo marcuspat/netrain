@@ -30,6 +30,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 const ASCII_LOGO: &str = r#"
 ╔═╗ ╔═╗ ╔══════╗ ╔══════╗ ╔══════╗ ╔══════╗ ╔══════╗ ╔═╗ ╔═╗
 ║ ╚═╝ ║ ║ ╔════╝ ╚═╗  ╔═╝ ║ ╔══╗ ║ ║ ╔══╗ ║ ╚═╗  ╔═╝ ║ ╚═╝ ║
@@ -153,8 +155,8 @@ fn main() -> Result<()> {
             
         f.render_widget(logo_paragraph, vertical_center[1]);
         
-        // Add a loading message
-        let loading_text = Paragraph::new("Initializing packet capture...")
+        // Add a loading message with version
+        let loading_text = Paragraph::new(format!("NetRain v{}\nInitializing packet capture...", VERSION))
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center);
         
@@ -518,7 +520,7 @@ fn main() -> Result<()> {
             drop(detector);
             
             let stats_text = vec![
-                Span::styled(" NETRAIN ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" NETRAIN v{} ", VERSION), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::raw("|"),
                 Span::styled(format!(" FPS: {} ", fps), Style::default().fg(if fps >= 55 { Color::Green } else { Color::Yellow })),
                 Span::raw("|"),
