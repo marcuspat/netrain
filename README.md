@@ -62,33 +62,21 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ## 🚀 Installation
 
-> **Current Version**: v0.2.0 - [View Changelog](CHANGELOG.md)
-
-### Quick Install
-
-#### Using Cargo (All Platforms)
+### From crates.io
 ```bash
 cargo install netrain
-
-# Run with packet capture (requires root/admin)
-sudo netrain
-
-# Or run in demo mode (no root required)
-netrain --demo
-```
-[![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
-[![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
-
-#### Using Homebrew (macOS/Linux)
-```bash
-# Coming soon!
-brew tap marcuspat/netrain
-brew install netrain
 ```
 
-#### Using Install Script
+#### From Source
 ```bash
-curl -sSL https://raw.githubusercontent.com/marcuspat/netrain/main/install.sh | bash
+# Clone the repository
+git clone https://github.com/marcuspat/netrain.git
+cd netrain
+
+# Build the project
+cargo build --release
+
+# The binary will be at ./target/release/netrain
 ```
 
 ### Prerequisites
@@ -113,43 +101,25 @@ sudo apt-get install libpcap-dev
 # https://npcap.com/
 ```
 
-### Build from Source
-```bash
-# Clone the repository
-git clone https://github.com/marcuspat/netrain.git
-cd netrain
-
-# Build the project
-cargo build --release
-
-# Run NetRain
-./target/release/netrain
-
-# Or run in demo mode (no network access needed)
-./target/release/netrain --demo
-```
-
-### Quick Demo
-```bash
-# Try the demo mode first (no root privileges needed)
-cargo run -- --demo
-```
 
 ## 🎯 Usage
 
-### Basic Usage
 ```bash
-# Monitor live network traffic (requires root/admin privileges)
-sudo ./target/release/netrain
+# Run with packet capture (requires root/admin)
+sudo netrain
 
-# Demo mode (safe to run without privileges)
-./target/release/netrain --demo
+# Run in demo mode (no root required)
+netrain --demo
+
+# Show help
+netrain --help
+
+# Show version
+netrain --version
 ```
 
 ### Keyboard Controls
 - **Q** - Quit the application
-- **D** - Toggle demo mode
-- **Ctrl+C** - Emergency exit
 
 ### Understanding the Interface
 
@@ -165,53 +135,16 @@ sudo ./target/release/netrain
 - **Threat Monitor** - Real-time security alerts
 - **Packet Log** - Recent network activity
 
-## 🔧 Configuration
-
-### Running with Custom Interface
-```bash
-# Specify network interface (Linux)
-sudo ./target/release/netrain --interface eth0
-
-# Capture specific protocols
-sudo ./target/release/netrain --filter "tcp port 80"
-```
-
-### Performance Tuning
-```bash
-# Enable high-performance mode
-sudo ./target/release/netrain --performance
-
-# Adjust frame rate
-sudo ./target/release/netrain --fps 120
-```
-
 ## 🧪 Development
 
 ### Running Tests
 ```bash
-# Run all tests
 cargo test
-
-# Run specific test suite
-cargo test --test integration_tests
-
-# Run with coverage
-cargo tarpaulin --out html
 ```
 
 ### Benchmarks
 ```bash
-# Run performance benchmarks
 cargo bench
-
-# View benchmark results
-open target/criterion/report/index.html
-```
-
-### Debug Mode
-```bash
-# Run with debug logging
-RUST_LOG=debug cargo run -- --demo
 ```
 
 ## 📈 Technical Architecture
@@ -231,7 +164,7 @@ RUST_LOG=debug cargo run -- --demo
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions!
 
 ### Development Setup
 ```bash
@@ -273,20 +206,16 @@ git push origin feature/amazing-feature
 #### Permission Denied
 ```bash
 # On Linux/macOS, packet capture requires root privileges
-sudo ./target/release/netrain
+sudo netrain
 
 # Or use demo mode
-./target/release/netrain --demo
+netrain --demo
 ```
 
 #### No Network Interface Found
 ```bash
-# List available interfaces
-ip link show  # Linux
-ifconfig      # macOS
-
 # Use demo mode if no interfaces available
-./target/release/netrain --demo
+netrain --demo
 ```
 
 #### Terminal Display Issues
