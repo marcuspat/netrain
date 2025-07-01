@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2025-01-01
+### Changed
+- Cleaned up README to only show working installation methods
+- Removed references to non-existent Homebrew installation
+- Removed references to install script that doesn't exist
+- Removed non-existent configuration options from documentation
+
 ## [0.2.1] - 2025-01-01
 ### Fixed
 - Added clear error messages when running without proper permissions
@@ -47,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-commit hooks for running tests
 - GitHub Actions CI workflow for Rust projects
 
-[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/marcuspat/netrain/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/marcuspat/netrain/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/marcuspat/netrain/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/marcuspat/netrain/releases/tag/v0.1.0
