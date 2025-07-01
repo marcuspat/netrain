@@ -229,12 +229,16 @@ fn main() -> Result<()> {
             let protocols = vec![Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS, Protocol::SSH];
             
             loop {
-                thread::sleep(Duration::from_millis(50)); // Faster updates for more activity
+                // Vary the sleep time for more realistic traffic patterns
+                let sleep_ms = 200 + (rand::random::<u64>() % 100); // 200-300ms
+                thread::sleep(Duration::from_millis(sleep_ms));
                 
-                // Generate multiple packets per cycle for visible activity
-                let num_packets = rand::random::<usize>() % 5 + 1;
+                // Generate fewer packets for more realistic traffic
+                let num_packets = rand::random::<usize>() % 3; // 0-2 packets
                 
-                for _ in 0..num_packets {
+                // Skip this cycle sometimes for even more realistic gaps
+                if num_packets > 0 {
+                    for _ in 0..num_packets {
                     let (src, dst) = demo_ips[rand::random::<usize>() % demo_ips.len()];
                     let protocol = protocols[rand::random::<usize>() % protocols.len()];
                     let size = 60 + rand::random::<usize>() % 1400;
@@ -282,7 +286,8 @@ fn main() -> Result<()> {
                 if raw.len() > 5 {
                     raw.pop_back();
                 }
-                } // End of for loop
+                    } // End of for loop
+                } // End of if num_packets > 0
             }
         });
     } else {
