@@ -469,7 +469,7 @@ fn main() -> Result<()> {
         }
         
         // Update protocol activity tracker every 200ms for smoother display
-        if now.duration_since(last_activity_tick) >= Duration::from_millis(200) {
+        if now.duration_since(last_activity_tick) >= Duration::from_millis(100) {
             protocol_activity.lock().unwrap().tick();
             last_activity_tick = now;
         }
