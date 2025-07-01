@@ -700,8 +700,7 @@ fn main() -> Result<()> {
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
                     Constraint::Length(8),   // Threat monitor - increased back to 8
-                    Constraint::Min(20),     // Packet dump - reduced to reclaim space
-                    Constraint::Length(3),   // Help
+                    Constraint::Min(20),     // Packet dump
                 ])
                 .split(main_chunks[1]);
 
@@ -892,15 +891,6 @@ fn main() -> Result<()> {
                     .title(" [ PACKET DUMP ] ")
                     .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
             f.render_widget(packet_dump, right_chunks[3]);
-            
-            // Help text at bottom
-            let help_text = Paragraph::new("Q: Quit | D: Demo Mode")
-                .style(Style::default().fg(Color::DarkGray))
-                .alignment(Alignment::Center)
-                .block(Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray)));
-            f.render_widget(help_text, right_chunks[4]);
         })?;
         
         // Record frame time for performance monitoring
