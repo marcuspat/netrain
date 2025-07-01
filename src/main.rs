@@ -850,6 +850,7 @@ fn main() -> Result<()> {
                 // Show hex dump of latest packet
                 packet_dump_text.push(Line::from(Span::styled("Latest Packet:", Style::default().fg(Color::Green))));
                 packet_dump_text.push(Line::from(Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))));
+                packet_dump_text.push(Line::from("".to_string())); // One empty line
                 
                 // Generate hex dump from packet data
                 let packet_data = &raw[0];
