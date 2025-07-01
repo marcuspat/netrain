@@ -60,9 +60,28 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 > **Current Version**: v0.2.0 - [View Changelog](CHANGELOG.md)
 
+### Quick Install
+
+#### Using Cargo (All Platforms)
+```bash
+cargo install netrain
+```
+
+#### Using Homebrew (macOS/Linux)
+```bash
+# Coming soon!
+brew tap marcuspat/netrain
+brew install netrain
+```
+
+#### Using Install Script
+```bash
+curl -sSL https://raw.githubusercontent.com/marcuspat/netrain/main/install.sh | bash
+```
+
 ### Prerequisites
-- **Rust** (1.70 or later) - [Install here](https://rustup.rs/)
-- **libpcap** development libraries
+- **libpcap** development libraries (for packet capture)
+- **Rust** 1.70+ (only for building from source)
 
 #### Ubuntu/Debian
 ```bash
@@ -72,7 +91,8 @@ sudo apt-get install libpcap-dev
 
 #### macOS
 ```bash
-brew install libpcap
+# libpcap is included with macOS
+# No additional installation needed
 ```
 
 #### Windows

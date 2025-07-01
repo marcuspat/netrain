@@ -30,6 +30,9 @@ tarpaulin-report.html
 # Release artifacts
 dist/
 release/
+*.tar.gz
+*.zip
+netrain-v*
 
 # Environment files
 .env

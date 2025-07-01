@@ -6,6 +6,11 @@ authors = ["NetRain Contributors"]
 description = "Matrix-style network packet monitor with threat detection"
 license = "MIT"
 repository = "https://github.com/marcuspat/netrain"
+homepage = "https://github.com/marcuspat/netrain"
+documentation = "https://docs.rs/netrain"
+readme = "README.md"
+keywords = ["network", "monitoring", "packet", "matrix", "tui"]
+categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 pcap = "1.1"

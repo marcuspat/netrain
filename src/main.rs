@@ -115,6 +115,27 @@ impl PerformanceMonitor {
 fn main() -> Result<()> {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
+    
+    // Check for version flag
+    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
+        println!("NetRain v{}", VERSION);
+        return Ok(());
+    }
+    
+    // Check for help flag
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        println!("NetRain v{} - Matrix-style network packet monitor", VERSION);
+        println!("\nUsage: netrain [OPTIONS]");
+        println!("\nOptions:");
+        println!("  --demo       Run in demo mode (no root required)");
+        println!("  --version    Show version information");
+        println!("  --help       Show this help message");
+        println!("\nControls:");
+        println!("  Q            Quit the application");
+        println!("  D            Toggle demo mode");
+        return Ok(());
+    }
+    
     let demo_mode = args.contains(&"--demo".to_string());
     
     // Setup terminal
