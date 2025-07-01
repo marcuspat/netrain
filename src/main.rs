@@ -227,6 +227,7 @@ fn main() -> Result<()> {
     let perf_monitor = Arc::new(PerformanceMonitor::new());
     let raw_packets = Arc::new(Mutex::new(VecDeque::new())); // Store raw packet data for hex dump
     let protocol_activity = Arc::new(Mutex::new(ProtocolActivityTracker::new()));
+    let capture_error = Arc::new(Mutex::new(None::<String>)); // Track capture errors
 
     // Start packet capture in background thread
     if demo_mode {
@@ -322,6 +323,7 @@ fn main() -> Result<()> {
         let perf_monitor_clone = Arc::clone(&perf_monitor);
         let raw_packets_clone = Arc::clone(&raw_packets);
         let protocol_activity_clone = Arc::clone(&protocol_activity);
+        let capture_error_clone = Arc::clone(&capture_error);
         let capture_matrix_width = matrix_width;
 
         thread::spawn(move || {
@@ -435,8 +437,10 @@ fn main() -> Result<()> {
                                             }
                                         }
                                     }
-                                    Err(_) => {
-                                        // Failed to open capture, silently skip
+                                    Err(e) => {
+                                        *capture_error_clone.lock().unwrap() = Some(format!(
+                                            "Permission denied: Run with 'sudo netrain' or use '--demo' mode\nError: {}", e
+                                        ));
                                     }
                                 }
                             }
@@ -445,11 +449,15 @@ fn main() -> Result<()> {
                             }
                         }
                     } else {
-                        // No suitable network device found
+                        *capture_error_clone.lock().unwrap() = Some(
+                            "No network device found. Check your network configuration.".to_string()
+                        );
                     }
                 }
-                Err(_) => {
-                    // Failed to list network devices
+                Err(e) => {
+                    *capture_error_clone.lock().unwrap() = Some(format!(
+                        "Failed to list network devices: {}\nTry running with 'sudo netrain'", e
+                    ));
                 }
             }
         });
@@ -579,10 +587,23 @@ fn main() -> Result<()> {
             f.render_widget(&*rain, matrix_area);
             
             // Packet log in matrix panel
+            let capture_err = capture_error.lock().unwrap();
             let log = packet_log.lock().unwrap();
-            let log_items: Vec<ListItem> = log.iter()
-                .enumerate()
-                .map(|(i, entry)| {
+            
+            // Check if there's a capture error to display
+            let log_items: Vec<ListItem> = if let Some(error_msg) = capture_err.as_ref() {
+                // Display error message
+                error_msg.lines()
+                    .map(|line| ListItem::new(line).style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)))
+                    .collect()
+            } else if log.is_empty() && !demo_mode {
+                // No packets and no error - show waiting message
+                vec![ListItem::new("Waiting for packets...").style(Style::default().fg(Color::DarkGray))]
+            } else {
+                // Normal packet log display
+                log.iter()
+                    .enumerate()
+                    .map(|(i, entry)| {
                     let color = if entry.contains("HTTP ") {
                         Color::Blue
                     } else if entry.contains("HTTPS") {
@@ -606,7 +627,8 @@ fn main() -> Result<()> {
                     };
                     ListItem::new(entry.as_str()).style(style)
                 })
-                .collect();
+                .collect()
+            };
             
             let log_list = List::new(log_items)
                 .block(Block::default()
@@ -616,6 +638,7 @@ fn main() -> Result<()> {
                     .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             f.render_widget(log_list, matrix_chunks[2]);
             drop(log);
+            drop(capture_err);
             
             // Network activity graph at bottom - color-coded by protocol
             use ratatui::widgets::Sparkline;

@@ -10,6 +10,8 @@
 
 A **Matrix-style network packet monitor** with real-time threat detection and stunning terminal visualizations. Built with Rust for maximum performance.
 
+⚡ **Quick Start**: `cargo install netrain` then `sudo netrain` (or `netrain --demo` for demo mode)
+
 [![CI Status](https://github.com/marcuspat/netrain/workflows/CI/badge.svg)](https://github.com/marcuspat/netrain/actions)
 [![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
 [![GitHub release](https://img.shields.io/github/v/release/marcuspat/netrain?display_name=tag)](https://github.com/marcuspat/netrain/releases/latest)
@@ -67,6 +69,12 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 #### Using Cargo (All Platforms)
 ```bash
 cargo install netrain
+
+# Run with packet capture (requires root/admin)
+sudo netrain
+
+# Or run in demo mode (no root required)
+netrain --demo
 ```
 [![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
 [![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
