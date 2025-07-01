@@ -11,6 +11,7 @@
 A **Matrix-style network packet monitor** with real-time threat detection and stunning terminal visualizations. Built with Rust for maximum performance.
 
 [![CI Status](https://github.com/marcuspat/netrain/workflows/CI/badge.svg)](https://github.com/marcuspat/netrain/actions)
+[![GitHub release](https://img.shields.io/github/v/release/marcuspat/netrain?display_name=tag)](https://github.com/marcuspat/netrain/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/marcuspat/netrain?style=social)](https://github.com/marcuspat/netrain/stargazers)
 
@@ -56,6 +57,8 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 - **Professional terminal interface** with styled borders
 
 ## 🚀 Installation
+
+> **Current Version**: v0.2.0 - [View Changelog](CHANGELOG.md)
 
 ### Prerequisites
 - **Rust** (1.70 or later) - [Install here](https://rustup.rs/)
