@@ -700,7 +700,7 @@ fn main() -> Result<()> {
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
                     Constraint::Length(8),   // Threat monitor - increased back to 8
-                    Constraint::Min(15),     // Recent packets list
+                    Constraint::Min(20),     // Packet dump
                 ])
                 .split(main_chunks[1]);
 
@@ -847,33 +847,38 @@ fn main() -> Result<()> {
             let log = packet_log.lock().unwrap();
             
             if !raw.is_empty() && !log.is_empty() {
-                // Show latest packets in a clean list format
-                packet_dump_text.push(Line::from(Span::styled("LATEST PACKETS", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-                packet_dump_text.push(Line::from("".to_string()));
+                // Show hex dump of latest packet
+                packet_dump_text.push(Line::from(Span::styled("Latest Packet:", Style::default().fg(Color::Green))));
+                packet_dump_text.push(Line::from(Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))));
                 
-                // Show up to 10 recent packets
-                let packets_to_show = std::cmp::min(log.len(), 10);
-                for i in 0..packets_to_show {
-                    let packet_info = &log[i];
-                    let packet_size = if i < raw.len() { raw[i].len() } else { 0 };
+                // Generate hex dump from packet data
+                let packet_data = &raw[0];
+                for (offset, chunk) in packet_data.chunks(16).enumerate() {
+                    let mut hex_part = String::new();
+                    let mut ascii_part = String::new();
                     
-                    // Format: [#1] 192.168.1.1 -> 8.8.8.8 | TCP | 64 bytes
-                    packet_dump_text.push(Line::from(vec![
-                        Span::styled(format!("[#{}] ", i + 1), Style::default().fg(Color::DarkGray)),
-                        Span::styled(packet_info.clone(), Style::default().fg(Color::Cyan)),
-                        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(format!("{} bytes", packet_size), Style::default().fg(Color::Yellow))
-                    ]));
-                    packet_dump_text.push(Line::from("".to_string())); // Space between entries
+                    for (i, byte) in chunk.iter().enumerate() {
+                        if i == 8 {
+                            hex_part.push_str("  ");
+                        }
+                        hex_part.push_str(&format!("{:02x} ", byte));
+                        
+                        if byte.is_ascii_graphic() || *byte == b' ' {
+                            ascii_part.push(*byte as char);
+                        } else {
+                            ascii_part.push('.');
+                        }
+                    }
+                    
+                    // Pad hex part if needed
+                    let padding = 50 - hex_part.len();
+                    hex_part.push_str(&" ".repeat(padding));
+                    
+                    let line = format!("{:08x}  {}  {}", offset * 16, hex_part, ascii_part);
+                    packet_dump_text.push(Line::from(Span::styled(line, Style::default().fg(Color::DarkGray))));
                 }
             } else {
-                // Clean waiting message
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("Waiting for packets...", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC))));
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("Use 'sudo netrain' or '--demo'", Style::default().fg(Color::DarkGray))));
+                packet_dump_text.push(Line::from(Span::styled("Waiting for packets...", Style::default().fg(Color::DarkGray))));
             }
             drop(raw);
             drop(log);
@@ -883,7 +888,7 @@ fn main() -> Result<()> {
                 .block(Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(" [ RECENT PACKETS ] ")
+                    .title(" [ PACKET DUMP ] ")
                     .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
             f.render_widget(packet_dump, right_chunks[3]);
         })?;
