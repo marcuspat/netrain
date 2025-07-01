@@ -506,9 +506,9 @@ fn main() -> Result<()> {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),   // Top stats bar
-                    Constraint::Percentage(35), // Matrix rain area
-                    Constraint::Percentage(35), // Packet log
-                    Constraint::Min(10),   // Network activity graph - increased height
+                    Constraint::Percentage(17), // Matrix rain area - reduced by half
+                    Constraint::Percentage(53), // Packet log - increased for better visibility
+                    Constraint::Min(10),   // Network activity graph
                 ])
                 .split(main_chunks[0]);
             
@@ -657,8 +657,8 @@ fn main() -> Result<()> {
                 .constraints([
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
-                    Constraint::Length(10),  // Threat monitor
-                    Constraint::Min(15),     // Packet log
+                    Constraint::Length(6),   // Threat monitor - reduced from 10
+                    Constraint::Min(25),     // Packet dump - increased from 15
                     Constraint::Length(3),   // Help
                 ])
                 .split(main_chunks[1]);
