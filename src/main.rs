@@ -700,7 +700,7 @@ fn main() -> Result<()> {
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
                     Constraint::Length(8),   // Threat monitor - increased back to 8
-                    Constraint::Min(22),     // Packet dump - slightly larger
+                    Constraint::Min(15),     // Recent packets list
                 ])
                 .split(main_chunks[1]);
 
@@ -847,88 +847,33 @@ fn main() -> Result<()> {
             let log = packet_log.lock().unwrap();
             
             if !raw.is_empty() && !log.is_empty() {
-                // Header section with better spacing
-                packet_dump_text.push(Line::from(Span::styled("━━━ LATEST PACKET ━━━", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-                packet_dump_text.push(Line::from("".to_string())); // Empty line for spacing
+                // Show latest packets in a clean list format
+                packet_dump_text.push(Line::from(Span::styled("LATEST PACKETS", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                packet_dump_text.push(Line::from("".to_string()));
                 
-                // Packet info with better formatting
-                let packet_data = &raw[0];
-                packet_dump_text.push(Line::from(vec![
-                    Span::styled("Info: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))
-                ]));
-                packet_dump_text.push(Line::from(vec![
-                    Span::styled("Size: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{} bytes", packet_data.len()), Style::default().fg(Color::White))
-                ]));
-                
-                packet_dump_text.push(Line::from("".to_string())); // Empty line for spacing
-                packet_dump_text.push(Line::from(Span::styled("━━━ HEX DUMP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Style::default().fg(Color::DarkGray))));
-                packet_dump_text.push(Line::from("".to_string())); // Empty line for spacing
-                
-                // Generate hex dump with improved formatting (limit to reasonable size)
-                let display_bytes = std::cmp::min(packet_data.len(), 128); // Show max 8 lines
-                for (offset, chunk) in packet_data[..display_bytes].chunks(16).enumerate() {
-                    let mut hex_parts = Vec::new();
-                    let mut ascii_part = String::new();
+                // Show up to 10 recent packets
+                let packets_to_show = std::cmp::min(log.len(), 10);
+                for i in 0..packets_to_show {
+                    let packet_info = &log[i];
+                    let packet_size = if i < raw.len() { raw[i].len() } else { 0 };
                     
-                    // Build hex part with individual styling
-                    for (i, byte) in chunk.iter().enumerate() {
-                        if i == 8 {
-                            hex_parts.push(Span::raw("  ")); // Extra space in middle
-                        }
-                        hex_parts.push(Span::styled(format!("{:02x} ", byte), Style::default().fg(Color::Cyan)));
-                        
-                        if byte.is_ascii_graphic() || *byte == b' ' {
-                            ascii_part.push(*byte as char);
-                        } else {
-                            ascii_part.push('.');
-                        }
-                    }
-                    
-                    // Create the complete line with better colors
-                    let mut line_spans = vec![
-                        Span::styled(format!("{:08x}  ", offset * 16), Style::default().fg(Color::Yellow)),
-                    ];
-                    line_spans.extend(hex_parts);
-                    
-                    // Pad to align ASCII part
-                    let current_hex_len: usize = chunk.len() * 3 + if chunk.len() > 8 { 2 } else { 0 };
-                    let padding_needed = 50 - current_hex_len;
-                    if padding_needed > 0 {
-                        line_spans.push(Span::raw(" ".repeat(padding_needed)));
-                    }
-                    
-                    line_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
-                    line_spans.push(Span::styled(ascii_part, Style::default().fg(Color::Green)));
-                    
-                    packet_dump_text.push(Line::from(line_spans));
+                    // Format: [#1] 192.168.1.1 -> 8.8.8.8 | TCP | 64 bytes
+                    packet_dump_text.push(Line::from(vec![
+                        Span::styled(format!("[#{}] ", i + 1), Style::default().fg(Color::DarkGray)),
+                        Span::styled(packet_info.clone(), Style::default().fg(Color::Cyan)),
+                        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(format!("{} bytes", packet_size), Style::default().fg(Color::Yellow))
+                    ]));
+                    packet_dump_text.push(Line::from("".to_string())); // Space between entries
                 }
-                
-                // Show truncation message if packet is larger
-                if packet_data.len() > display_bytes {
-                    packet_dump_text.push(Line::from("".to_string()));
-                    packet_dump_text.push(Line::from(Span::styled(
-                        format!("... ({} more bytes truncated)", packet_data.len() - display_bytes),
-                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)
-                    )));
-                }
-                
-                packet_dump_text.push(Line::from("".to_string())); // Empty line at end
             } else {
-                // Better "waiting" message with more visual appeal
+                // Clean waiting message
                 packet_dump_text.push(Line::from("".to_string()));
                 packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Style::default().fg(Color::DarkGray))));
                 packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("               🌧️  Waiting for packets...  🌧️", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC))));
+                packet_dump_text.push(Line::from(Span::styled("Waiting for packets...", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC))));
                 packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("          Start packet capture to see hex dumps", Style::default().fg(Color::DarkGray))));
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("              Use 'sudo netrain' or '--demo'", Style::default().fg(Color::DarkGray))));
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from("".to_string()));
-                packet_dump_text.push(Line::from(Span::styled("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Style::default().fg(Color::DarkGray))));
+                packet_dump_text.push(Line::from(Span::styled("Use 'sudo netrain' or '--demo'", Style::default().fg(Color::DarkGray))));
             }
             drop(raw);
             drop(log);
@@ -938,7 +883,7 @@ fn main() -> Result<()> {
                 .block(Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(" [ PACKET DUMP ] ")
+                    .title(" [ RECENT PACKETS ] ")
                     .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
             f.render_widget(packet_dump, right_chunks[3]);
         })?;
