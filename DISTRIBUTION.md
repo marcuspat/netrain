@@ -9,7 +9,7 @@ This guide covers how to distribute NetRain through various package managers.
 
 ## Crates.io
 
-NetRain can be published to crates.io, making it installable via `cargo install`.
+✅ **NetRain is now published on crates.io!** Users can install it with `cargo install netrain`.
 
 ### Prerequisites
 1. Create account at https://crates.io

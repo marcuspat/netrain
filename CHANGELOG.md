@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Published to crates.io - now available via `cargo install netrain`
+
 ## [0.2.0] - 2025-01-01
 ### Added
 - Protocol-based color coding for network activity graphs

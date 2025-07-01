@@ -11,8 +11,10 @@
 A **Matrix-style network packet monitor** with real-time threat detection and stunning terminal visualizations. Built with Rust for maximum performance.
 
 [![CI Status](https://github.com/marcuspat/netrain/workflows/CI/badge.svg)](https://github.com/marcuspat/netrain/actions)
+[![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
 [![GitHub release](https://img.shields.io/github/v/release/marcuspat/netrain?display_name=tag)](https://github.com/marcuspat/netrain/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
 [![GitHub stars](https://img.shields.io/github/stars/marcuspat/netrain?style=social)](https://github.com/marcuspat/netrain/stargazers)
 
 ## 🎬 Demo
@@ -66,6 +68,8 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 ```bash
 cargo install netrain
 ```
+[![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
+[![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
 
 #### Using Homebrew (macOS/Linux)
 ```bash
