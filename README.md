@@ -35,7 +35,7 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 ## ✨ Features
 
 ### 🌊 Visual Experience
-- **Authentic Matrix rain** with Japanese katakana characters
+- **Authentic Matrix rain** with cascading characters
 - **Rainbow mode** for critical threats
 - **3D depth illusion** with variable column speeds  
 - **Particle effects** on packet arrival

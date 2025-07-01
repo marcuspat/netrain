@@ -1,6 +1,6 @@
 [package]
 name = "netrain"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 authors = ["NetRain Contributors"]
 description = "Matrix-style network packet monitor with threat detection"
