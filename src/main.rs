@@ -657,8 +657,8 @@ fn main() -> Result<()> {
                 .constraints([
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
-                    Constraint::Length(6),   // Threat monitor - reduced from 10
-                    Constraint::Min(25),     // Packet dump - increased from 15
+                    Constraint::Length(8),   // Threat monitor - increased back to 8
+                    Constraint::Min(20),     // Packet dump - reduced to reclaim space
                     Constraint::Length(3),   // Help
                 ])
                 .split(main_chunks[1]);
@@ -809,7 +809,6 @@ fn main() -> Result<()> {
                 // Show hex dump of recent packet
                 packet_dump_text.push(Line::from(Span::styled("Latest Packet:", Style::default().fg(Color::Green))));
                 packet_dump_text.push(Line::from(Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))));
-                packet_dump_text.push(Line::from(""));
                 
                 // Generate actual hex dump from packet data
                 let packet_data = &raw[0];
