@@ -14,7 +14,6 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 [![CI Status](https://github.com/marcuspat/netrain/workflows/CI/badge.svg)](https://github.com/marcuspat/netrain/actions)
 [![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
-[![GitHub release](https://img.shields.io/github/v/release/marcuspat/netrain?display_name=tag)](https://github.com/marcuspat/netrain/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
 [![GitHub stars](https://img.shields.io/github/stars/marcuspat/netrain?style=social)](https://github.com/marcuspat/netrain/stargazers)
@@ -56,7 +55,7 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ### 🎮 User Experience
 - **Demo mode** for showcasing without network access
-- **Keyboard controls** (Q to quit, D for demo)
+- **Keyboard controls** (Q to quit)
 - **Responsive UI** that adapts to terminal size
 - **Professional terminal interface** with styled borders
 
@@ -158,7 +157,7 @@ cargo bench
 
 ### Security Features
 - **Time-window analysis** for pattern detection
-- **Configurable thresholds** for different attack types
+- **Pre-configured thresholds** for different attack types
 - **Multi-threaded packet processing** with lock-free coordination
 - **Memory-safe** implementation despite performance optimizations
 
@@ -243,8 +242,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - 🐛 **Bug Reports**: [GitHub Issues](https://github.com/marcuspat/netrain/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/marcuspat/netrain/discussions)
-- 📖 **Documentation**: [Wiki](https://github.com/marcuspat/netrain/wiki)
+- 💡 **Feature Requests**: [GitHub Issues](https://github.com/marcuspat/netrain/issues)
 
 ---
 
