@@ -700,7 +700,7 @@ fn main() -> Result<()> {
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
                     Constraint::Length(8),   // Threat monitor - increased back to 8
-                    Constraint::Min(20),     // Packet dump
+                    Constraint::Min(22),     // Packet dump - slightly larger
                 ])
                 .split(main_chunks[1]);
 
@@ -847,21 +847,37 @@ fn main() -> Result<()> {
             let log = packet_log.lock().unwrap();
             
             if !raw.is_empty() && !log.is_empty() {
-                // Show hex dump of recent packet
-                packet_dump_text.push(Line::from(Span::styled("Latest Packet:", Style::default().fg(Color::Green))));
-                packet_dump_text.push(Line::from(Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))));
+                // Header section with better spacing
+                packet_dump_text.push(Line::from(Span::styled("━━━ LATEST PACKET ━━━", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                packet_dump_text.push(Line::from("".to_string())); // Empty line for spacing
                 
-                // Generate actual hex dump from packet data
+                // Packet info with better formatting
                 let packet_data = &raw[0];
-                for (offset, chunk) in packet_data.chunks(16).enumerate() {
-                    let mut hex_part = String::new();
+                packet_dump_text.push(Line::from(vec![
+                    Span::styled("Info: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))
+                ]));
+                packet_dump_text.push(Line::from(vec![
+                    Span::styled("Size: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{} bytes", packet_data.len()), Style::default().fg(Color::White))
+                ]));
+                
+                packet_dump_text.push(Line::from("".to_string())); // Empty line for spacing
+                packet_dump_text.push(Line::from(Span::styled("━━━ HEX DUMP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Style::default().fg(Color::DarkGray))));
+                packet_dump_text.push(Line::from("".to_string())); // Empty line for spacing
+                
+                // Generate hex dump with improved formatting (limit to reasonable size)
+                let display_bytes = std::cmp::min(packet_data.len(), 128); // Show max 8 lines
+                for (offset, chunk) in packet_data[..display_bytes].chunks(16).enumerate() {
+                    let mut hex_parts = Vec::new();
                     let mut ascii_part = String::new();
                     
+                    // Build hex part with individual styling
                     for (i, byte) in chunk.iter().enumerate() {
                         if i == 8 {
-                            hex_part.push_str("  ");
+                            hex_parts.push(Span::raw("  ")); // Extra space in middle
                         }
-                        hex_part.push_str(&format!("{:02x} ", byte));
+                        hex_parts.push(Span::styled(format!("{:02x} ", byte), Style::default().fg(Color::Cyan)));
                         
                         if byte.is_ascii_graphic() || *byte == b' ' {
                             ascii_part.push(*byte as char);
@@ -870,15 +886,49 @@ fn main() -> Result<()> {
                         }
                     }
                     
-                    // Pad hex part if needed
-                    let padding = 50 - hex_part.len();
-                    hex_part.push_str(&" ".repeat(padding));
+                    // Create the complete line with better colors
+                    let mut line_spans = vec![
+                        Span::styled(format!("{:08x}  ", offset * 16), Style::default().fg(Color::Yellow)),
+                    ];
+                    line_spans.extend(hex_parts);
                     
-                    let line = format!("{:08x}  {}  {}", offset * 16, hex_part, ascii_part);
-                    packet_dump_text.push(Line::from(Span::styled(line, Style::default().fg(Color::DarkGray))));
+                    // Pad to align ASCII part
+                    let current_hex_len: usize = chunk.len() * 3 + if chunk.len() > 8 { 2 } else { 0 };
+                    let padding_needed = 50 - current_hex_len;
+                    if padding_needed > 0 {
+                        line_spans.push(Span::raw(" ".repeat(padding_needed)));
+                    }
+                    
+                    line_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
+                    line_spans.push(Span::styled(ascii_part, Style::default().fg(Color::Green)));
+                    
+                    packet_dump_text.push(Line::from(line_spans));
                 }
+                
+                // Show truncation message if packet is larger
+                if packet_data.len() > display_bytes {
+                    packet_dump_text.push(Line::from("".to_string()));
+                    packet_dump_text.push(Line::from(Span::styled(
+                        format!("... ({} more bytes truncated)", packet_data.len() - display_bytes),
+                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)
+                    )));
+                }
+                
+                packet_dump_text.push(Line::from("".to_string())); // Empty line at end
             } else {
-                packet_dump_text.push(Line::from(Span::styled("Waiting for packets...", Style::default().fg(Color::DarkGray))));
+                // Better "waiting" message with more visual appeal
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from(Span::styled("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Style::default().fg(Color::DarkGray))));
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from(Span::styled("               🌧️  Waiting for packets...  🌧️", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC))));
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from(Span::styled("          Start packet capture to see hex dumps", Style::default().fg(Color::DarkGray))));
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from(Span::styled("              Use 'sudo netrain' or '--demo'", Style::default().fg(Color::DarkGray))));
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from("".to_string()));
+                packet_dump_text.push(Line::from(Span::styled("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Style::default().fg(Color::DarkGray))));
             }
             drop(raw);
             drop(log);
