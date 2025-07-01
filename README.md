@@ -259,6 +259,46 @@ export LANG=en_US.UTF-8
 # - iTerm2 (macOS), Windows Terminal (Windows)
 ```
 
+#### "Killed" Error During Installation (Linux)
+If you get a "signal: 9, SIGKILL: kill" error when running `cargo install netrain` on Linux, your system likely doesn't have enough memory to compile the dependencies.
+
+**Common on**: VPS/cloud instances with ≤1GB RAM
+
+**Solution 1: Add Swap Space (Recommended)**
+```bash
+# Create a 4GB swap file
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Make it permanent
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Now try installing again
+cargo install netrain
+```
+
+**Solution 2: Reduce Compilation Parallelism**
+```bash
+# Limit cargo to 1 job to reduce memory usage
+export CARGO_BUILD_JOBS=1
+cargo install netrain
+```
+
+**Solution 3: Use Pre-built Binary**
+Check if pre-built binaries are available for your release:
+```bash
+# Visit https://github.com/marcuspat/netrain/releases
+# Download the appropriate binary for your system
+# For example, for Linux x86_64:
+wget https://github.com/marcuspat/netrain/releases/download/vX.Y.Z/netrain-linux-amd64.tar.gz
+tar -xzf netrain-linux-amd64.tar.gz
+sudo mv netrain /usr/local/bin/
+sudo chmod +x /usr/local/bin/netrain
+```
+*Note: Replace vX.Y.Z with the actual version number*
+
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
