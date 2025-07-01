@@ -535,6 +535,8 @@ fn main() -> Result<()> {
                         ThreatLevel::Critical => Color::Red,
                     }).add_modifier(if threat_level != ThreatLevel::Low { Modifier::BOLD } else { Modifier::empty() })
                 ),
+                Span::raw(" | "),
+                Span::styled("Q:Quit", Style::default().fg(Color::DarkGray)),
             ];
             
             let stats_bar = Paragraph::new(Line::from(stats_text))
