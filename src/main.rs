@@ -205,14 +205,7 @@ fn main() -> Result<()> {
             // First, try to find and list available devices
             match Device::list() {
                 Ok(devices) => {
-                    eprintln!("🔍 Available network devices:");
-                    for device in &devices {
-                        eprintln!("  - {} ({})", 
-                            device.name, 
-                            device.desc.as_ref().unwrap_or(&"No description".to_string())
-                        );
-                    }
-                    
+                    // Silent device selection - no debug output in UI
                     // Try to find en0 (active WiFi interface) first
                     let target_device = devices.iter()
                         .find(|d| d.name == "en0")
@@ -220,11 +213,6 @@ fn main() -> Result<()> {
                         .or_else(|| devices.first());
                     
                     if let Some(device) = target_device {
-                        eprintln!("🎯 Using device: {} ({})", 
-                            device.name, 
-                            device.desc.as_ref().unwrap_or(&"No description".to_string())
-                        );
-                        
                         match Capture::from_device(device.clone()) {
                             Ok(cap_builder) => {
                                 match cap_builder
@@ -233,12 +221,9 @@ fn main() -> Result<()> {
                                     .timeout(1000) // Add timeout
                                     .open() {
                                     Ok(mut cap) => {
-                                        eprintln!("✅ Successfully opened packet capture on {}", device.name);
                                         
                                         // Set a filter to capture common traffic
-                                        if let Err(e) = cap.filter("ip", true) {
-                                            eprintln!("⚠️  Warning: Could not set filter: {}", e);
-                                        }
+                                        let _ = cap.filter("ip", true);
                                         
                                         loop {
                                             match cap.next_packet() {
@@ -311,31 +296,30 @@ fn main() -> Result<()> {
                                                     // Timeout is normal, continue
                                                     continue;
                                                 }
-                                                Err(e) => {
-                                                    eprintln!("❌ Error reading packet: {}", e);
+                                                Err(_) => {
+                                                    // Error reading packet, silently break
                                                     break;
                                                 }
                                             }
                                         }
                                     }
-                                    Err(e) => {
-                                        eprintln!("❌ Failed to open capture on {}: {}", device.name, e);
+                                    Err(_) => {
+                                        // Failed to open capture, silently skip
                                     }
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("❌ Failed to create capture from device {}: {}", device.name, e);
+                            Err(_) => {
+                                // Failed to create capture, silently skip
                             }
                         }
                     } else {
-                        eprintln!("❌ No suitable network device found");
+                        // No suitable network device found
                     }
                 }
-                Err(e) => {
-                    eprintln!("❌ Failed to list network devices: {}", e);
+                Err(_) => {
+                    // Failed to list network devices
                 }
             }
-            eprintln!("🔄 Packet capture thread exiting");
         });
     }
 
@@ -391,57 +375,37 @@ fn main() -> Result<()> {
             rain.set_threat_active(threat_level != ThreatLevel::Low || is_ddos);
         }
 
-        // Render
+        // Render with simplified layout
         terminal.draw(|f| {
-            // Create main layout - better spacing
+            // Simple two-column layout without title bar
             let main_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
+                .direction(Direction::Horizontal)
+                .margin(0)
                 .constraints([
-                    Constraint::Length(3),   // Title bar
-                    Constraint::Min(0),      // Main content
+                    Constraint::Percentage(70),
+                    Constraint::Percentage(30),
                 ])
                 .split(f.size());
 
-            // Title bar
-            let title = Paragraph::new("NetRain - Matrix Network Monitor")
-                .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
-                .alignment(Alignment::Center)
-                .block(Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray)));
-            f.render_widget(title, main_chunks[0]);
-
-            // Content area split
-            let content_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-                .split(main_chunks[1]);
-
-            // Matrix rain visualization with cleaner border
+            // Matrix rain - simple border
             let mut rain = matrix_rain.lock().unwrap();
             let matrix_block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Green))
-                .title(" Matrix Rain ")
-                .title_alignment(Alignment::Center);
+                .border_style(Style::default().fg(Color::Green));
             
-            let matrix_area = matrix_block.inner(content_chunks[0]);
-            f.render_widget(matrix_block, content_chunks[0]);
+            let matrix_area = matrix_block.inner(main_chunks[0]);
+            f.render_widget(matrix_block, main_chunks[0]);
             f.render_widget(&mut *rain, matrix_area);
 
-            // Right panel with better organization
+            // Right panel - simplified layout
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(8),   // Performance stats
-                    Constraint::Length(8),   // Protocol breakdown
-                    Constraint::Length(8),   // Threat status
+                    Constraint::Length(10),  // Stats
                     Constraint::Min(10),     // Packet log
-                    Constraint::Length(3),   // Help text
+                    Constraint::Length(2),   // Help
                 ])
-                .split(content_chunks[1]);
+                .split(main_chunks[1]);
 
             // Performance stats
             let fps = perf_monitor.get_fps();
