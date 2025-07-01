@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use crate::Protocol;
 
-const HISTORY_SIZE: usize = 30; // Keep 30 time slices for more responsive display
+const HISTORY_SIZE: usize = 60; // Keep 60 time slices
 
 #[derive(Debug, Clone)]
 pub struct ProtocolSnapshot {
