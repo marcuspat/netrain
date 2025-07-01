@@ -323,6 +323,95 @@ mod tests {
         }
 
         #[test]
+        fn test_classify_ssh_port_based() {
+            use optimized::classify_protocol_optimized;
+            
+            // Create a TCP packet on port 22 (SSH)
+            let mut packet_data = vec![0u8; 60];
+            packet_data[0] = 0x45;  // IPv4, header length 20
+            packet_data[9] = 0x06;  // TCP protocol
+            // Source IP
+            packet_data[12] = 192;
+            packet_data[13] = 168;
+            packet_data[14] = 1;
+            packet_data[15] = 100;
+            // Dest IP
+            packet_data[16] = 192;
+            packet_data[17] = 168;
+            packet_data[18] = 1;
+            packet_data[19] = 200;
+            // TCP header - source port 12345
+            packet_data[20] = 48;
+            packet_data[21] = 57;
+            // TCP header - dest port 22 (SSH)
+            packet_data[22] = 0;
+            packet_data[23] = 22;
+            // TCP header length
+            packet_data[32] = 0x50;
+            
+            let packet = Packet {
+                data: packet_data,
+                length: 60,
+                timestamp: 0,
+                src_ip: "192.168.1.100".to_string(),
+                dst_ip: "192.168.1.200".to_string(),
+            };
+            
+            // Test with optimized classifier that has port-based detection
+            assert_eq!(classify_protocol_optimized(&packet), Protocol::SSH);
+        }
+
+        #[test]
+        fn test_classify_https_port_based() {
+            use optimized::classify_protocol_optimized;
+            
+            // Create a TCP packet on port 443 (HTTPS)
+            let mut packet_data = vec![0u8; 60];
+            packet_data[0] = 0x45;  // IPv4
+            packet_data[9] = 0x06;  // TCP
+            packet_data[12..16].copy_from_slice(&[192, 168, 1, 100]); // Source IP
+            packet_data[16..20].copy_from_slice(&[192, 168, 1, 200]); // Dest IP
+            packet_data[20] = 48; packet_data[21] = 57; // Source port 12345
+            packet_data[22] = 1; packet_data[23] = 187; // Dest port 443
+            packet_data[32] = 0x50; // TCP header length
+            
+            let packet = Packet {
+                data: packet_data,
+                length: 60,
+                timestamp: 0,
+                src_ip: "192.168.1.100".to_string(),
+                dst_ip: "192.168.1.200".to_string(),
+            };
+            
+            assert_eq!(classify_protocol_optimized(&packet), Protocol::HTTPS);
+        }
+
+        #[test]
+        fn test_classify_http_port_based() {
+            use optimized::classify_protocol_optimized;
+            
+            // Create a TCP packet on port 80 (HTTP)
+            let mut packet_data = vec![0u8; 60];
+            packet_data[0] = 0x45;  // IPv4
+            packet_data[9] = 0x06;  // TCP
+            packet_data[12..16].copy_from_slice(&[192, 168, 1, 100]); // Source IP
+            packet_data[16..20].copy_from_slice(&[192, 168, 1, 200]); // Dest IP
+            packet_data[20] = 48; packet_data[21] = 57; // Source port 12345
+            packet_data[22] = 0; packet_data[23] = 80; // Dest port 80
+            packet_data[32] = 0x50; // TCP header length
+            
+            let packet = Packet {
+                data: packet_data,
+                length: 60,
+                timestamp: 0,
+                src_ip: "192.168.1.100".to_string(),
+                dst_ip: "192.168.1.200".to_string(),
+            };
+            
+            assert_eq!(classify_protocol_optimized(&packet), Protocol::HTTP);
+        }
+
+        #[test]
         fn test_classify_unknown_protocol() {
             let packet = Packet {
                 data: vec![0x00; 100], // All zeros

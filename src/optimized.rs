@@ -235,24 +235,45 @@ pub fn classify_protocol_optimized(packet: &super::Packet) -> super::Protocol {
     // Check IP protocol field (9 bytes into IP header)
     match data.get(offset + 9) {
         Some(&0x06) => {
-            // TCP - check for application protocols
-            if len > offset + 40 {  // At least TCP header
-                let tcp_data_start = offset + 20 + ((data[offset + 32] >> 4) * 4) as usize;
-                if tcp_data_start < len {
-                    let app_data = &data[tcp_data_start..];
-                    // Check for HTTP
-                    if app_data.starts_with(b"GET ") || app_data.starts_with(b"POST ") ||
-                       app_data.starts_with(b"PUT ") || app_data.starts_with(b"DELETE ") ||
-                       app_data.starts_with(b"HTTP/") {
-                        return Protocol::HTTP;
-                    }
-                    // Check for SSH
-                    if app_data.starts_with(b"SSH-") {
-                        return Protocol::SSH;
-                    }
-                    // Check for HTTPS (TLS)
-                    if app_data.len() > 0 && app_data[0] == 0x16 {
-                        return Protocol::HTTPS;
+            // TCP - check ports first for common protocols
+            if len > offset + 23 {  // Ensure we have TCP ports
+                let src_port = ((data[offset + 20] as u16) << 8) | data[offset + 21] as u16;
+                let dst_port = ((data[offset + 22] as u16) << 8) | data[offset + 23] as u16;
+                
+                // Check for SSH on port 22
+                if src_port == 22 || dst_port == 22 {
+                    return Protocol::SSH;
+                }
+                
+                // Check for HTTPS on port 443
+                if src_port == 443 || dst_port == 443 {
+                    return Protocol::HTTPS;
+                }
+                
+                // Check for HTTP on port 80
+                if src_port == 80 || dst_port == 80 {
+                    return Protocol::HTTP;
+                }
+                
+                // For other ports, check application data
+                if len > offset + 40 {  // At least TCP header
+                    let tcp_data_start = offset + 20 + ((data[offset + 32] >> 4) * 4) as usize;
+                    if tcp_data_start < len {
+                        let app_data = &data[tcp_data_start..];
+                        // Check for HTTP methods
+                        if app_data.starts_with(b"GET ") || app_data.starts_with(b"POST ") ||
+                           app_data.starts_with(b"PUT ") || app_data.starts_with(b"DELETE ") ||
+                           app_data.starts_with(b"HTTP/") {
+                            return Protocol::HTTP;
+                        }
+                        // Check for SSH banner (initial handshake only)
+                        if app_data.starts_with(b"SSH-") {
+                            return Protocol::SSH;
+                        }
+                        // Check for HTTPS (TLS handshake)
+                        if app_data.len() > 0 && app_data[0] == 0x16 {
+                            return Protocol::HTTPS;
+                        }
                     }
                 }
             }
