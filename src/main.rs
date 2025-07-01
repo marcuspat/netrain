@@ -468,8 +468,8 @@ fn main() -> Result<()> {
             last_traffic_update = now;
         }
         
-        // Update protocol activity tracker every 200ms for smoother display
-        if now.duration_since(last_activity_tick) >= Duration::from_millis(100) {
+        // Update protocol activity tracker every 150ms for smoother display
+        if now.duration_since(last_activity_tick) >= Duration::from_millis(150) {
             protocol_activity.lock().unwrap().tick();
             last_activity_tick = now;
         }
