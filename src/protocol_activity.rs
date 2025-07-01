@@ -78,7 +78,8 @@ impl ProtocolActivityTracker {
     }
     
     pub fn get_sparkline_data(&self, protocol: Protocol) -> Vec<u64> {
-        self.history.iter().map(|snapshot| {
+        // Include current snapshot for real-time display
+        let mut data: Vec<u64> = self.history.iter().map(|snapshot| {
             match protocol {
                 Protocol::TCP => snapshot.tcp,
                 Protocol::UDP => snapshot.udp,
@@ -88,13 +89,30 @@ impl ProtocolActivityTracker {
                 Protocol::SSH => snapshot.ssh,
                 Protocol::Unknown => snapshot.unknown,
             }
-        }).collect()
+        }).collect();
+        
+        // Add current snapshot value
+        data.push(match protocol {
+            Protocol::TCP => self.current.tcp,
+            Protocol::UDP => self.current.udp,
+            Protocol::HTTP => self.current.http,
+            Protocol::HTTPS => self.current.https,
+            Protocol::DNS => self.current.dns,
+            Protocol::SSH => self.current.ssh,
+            Protocol::Unknown => self.current.unknown,
+        });
+        
+        // Return only last 20 values for better visibility
+        data.into_iter().rev().take(20).rev().collect()
     }
     
     pub fn get_max_value(&self) -> u64 {
-        self.history.iter()
+        let history_max = self.history.iter()
             .map(|s| s.total)
             .max()
-            .unwrap_or(1)
+            .unwrap_or(0);
+        
+        // Include current snapshot in max calculation
+        history_max.max(self.current.total).max(1)
     }
 }

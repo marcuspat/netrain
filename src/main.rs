@@ -226,15 +226,18 @@ fn main() -> Result<()> {
                 ("172.16.0.100", "239.255.255.250"),
             ];
             
-            let protocols = vec![Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS];
+            let protocols = vec![Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS, Protocol::SSH];
             
             loop {
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(50)); // Faster updates for more activity
                 
-                // Generate random packet
-                let (src, dst) = demo_ips[rand::random::<usize>() % demo_ips.len()];
-                let protocol = protocols[rand::random::<usize>() % protocols.len()];
-                let size = 60 + rand::random::<usize>() % 1400;
+                // Generate multiple packets per cycle for visible activity
+                let num_packets = rand::random::<usize>() % 5 + 1;
+                
+                for _ in 0..num_packets {
+                    let (src, dst) = demo_ips[rand::random::<usize>() % demo_ips.len()];
+                    let protocol = protocols[rand::random::<usize>() % protocols.len()];
+                    let size = 60 + rand::random::<usize>() % 1400;
                 
                 // Update counters
                 *traffic_counter_clone.lock().unwrap() += 1;
@@ -254,6 +257,7 @@ fn main() -> Result<()> {
                     Protocol::HTTP => format!("[{}] HTTP  {} -> {} [{}B]", timestamp, src, dst, size),
                     Protocol::HTTPS => format!("[{}] HTTPS {} -> {} [{}B]", timestamp, src, dst, size),
                     Protocol::DNS => format!("[{}] DNS   {} -> {} [{}B]", timestamp, src, dst, size),
+                    Protocol::SSH => format!("[{}] SSH   {} -> {} [{}B]", timestamp, src, dst, size),
                     Protocol::TCP => format!("[{}] TCP   {} -> {} [{}B]", timestamp, src, dst, size),
                     Protocol::UDP => format!("[{}] UDP   {} -> {} [{}B]", timestamp, src, dst, size),
                     _ => format!("[{}] ???   {} -> {} [{}B]", timestamp, src, dst, size),
@@ -278,6 +282,7 @@ fn main() -> Result<()> {
                 if raw.len() > 5 {
                     raw.pop_back();
                 }
+                } // End of for loop
             }
         });
     } else {
@@ -463,8 +468,8 @@ fn main() -> Result<()> {
             last_traffic_update = now;
         }
         
-        // Update protocol activity tracker every second
-        if now.duration_since(last_activity_tick) >= Duration::from_secs(1) {
+        // Update protocol activity tracker every 200ms for smoother display
+        if now.duration_since(last_activity_tick) >= Duration::from_millis(200) {
             protocol_activity.lock().unwrap().tick();
             last_activity_tick = now;
         }
@@ -494,9 +499,9 @@ fn main() -> Result<()> {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),   // Top stats bar
-                    Constraint::Percentage(40), // Matrix rain area
-                    Constraint::Percentage(40), // Packet log
-                    Constraint::Length(6),   // Network activity graph
+                    Constraint::Percentage(35), // Matrix rain area
+                    Constraint::Percentage(35), // Packet log
+                    Constraint::Min(10),   // Network activity graph - increased height
                 ])
                 .split(main_chunks[0]);
             
@@ -587,7 +592,6 @@ fn main() -> Result<()> {
             
             // Get protocol activity data
             let activity = protocol_activity.lock().unwrap();
-            let _history = activity.get_history();
             
             // Create a layout for multiple protocol sparklines
             let protocol_chunks = Layout::default()
@@ -615,7 +619,17 @@ fn main() -> Result<()> {
             // Render sparkline for each protocol
             for (i, (protocol, color, name)) in protocols.iter().enumerate() {
                 let data = activity.get_sparkline_data(*protocol);
-                let max_val = activity.get_max_value().max(1);
+                // Calculate max for this specific protocol, with minimum of 10 for visibility
+                let protocol_max = data.iter().max().copied().unwrap_or(0);
+                let max_val = protocol_max.max(10);
+                
+                // Add current count to title for visibility
+                let current_count = data.last().copied().unwrap_or(0);
+                let title = if current_count > 0 {
+                    format!(" {} ({}) ", name, current_count)
+                } else {
+                    format!(" {} ", name)
+                };
                 
                 let sparkline = Sparkline::default()
                     .data(&data)
@@ -624,7 +638,7 @@ fn main() -> Result<()> {
                     .block(Block::default()
                         .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
                         .border_style(Style::default().fg(Color::DarkGray))
-                        .title(format!(" {} ", name)));
+                        .title(title));
                         
                 f.render_widget(sparkline, protocol_chunks[i]);
             }
