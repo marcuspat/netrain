@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use crate::Protocol;
 
-const HISTORY_SIZE: usize = 60; // Keep 60 time slices
+const HISTORY_SIZE: usize = 30; // Keep 30 time slices for more responsive display
 
 #[derive(Debug, Clone)]
 pub struct ProtocolSnapshot {
@@ -39,14 +39,8 @@ pub struct ProtocolActivityTracker {
 
 impl ProtocolActivityTracker {
     pub fn new() -> Self {
-        let mut history = VecDeque::with_capacity(HISTORY_SIZE);
-        // Initialize with empty snapshots
-        for _ in 0..HISTORY_SIZE {
-            history.push_back(ProtocolSnapshot::new());
-        }
-        
         Self {
-            history,
+            history: VecDeque::with_capacity(HISTORY_SIZE),
             current: ProtocolSnapshot::new(),
         }
     }
@@ -91,7 +85,7 @@ impl ProtocolActivityTracker {
             }
         }).collect();
         
-        // Add current snapshot value
+        // Add current snapshot value for immediate feedback
         data.push(match protocol {
             Protocol::TCP => self.current.tcp,
             Protocol::UDP => self.current.udp,
@@ -102,8 +96,17 @@ impl ProtocolActivityTracker {
             Protocol::Unknown => self.current.unknown,
         });
         
-        // Return only last 20 values for better visibility
-        data.into_iter().rev().take(20).rev().collect()
+        // Pad with zeros at the beginning if we don't have enough history
+        while data.len() < 20 {
+            data.insert(0, 0);
+        }
+        
+        // Return last 20 values for display
+        if data.len() > 20 {
+            data.split_off(data.len() - 20)
+        } else {
+            data
+        }
     }
     
     pub fn get_max_value(&self) -> u64 {

@@ -437,7 +437,7 @@ fn main() -> Result<()> {
     loop {
         let frame_start = Instant::now();
         // Handle input
-        if event::poll(Duration::from_millis(10))? {
+        if event::poll(Duration::from_millis(5))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Char('Q') => break,
@@ -468,8 +468,8 @@ fn main() -> Result<()> {
             last_traffic_update = now;
         }
         
-        // Update protocol activity tracker every 200ms for smoother display
-        if now.duration_since(last_activity_tick) >= Duration::from_millis(200) {
+        // Update protocol activity tracker every 50ms for real-time display
+        if now.duration_since(last_activity_tick) >= Duration::from_millis(50) {
             protocol_activity.lock().unwrap().tick();
             last_activity_tick = now;
         }
