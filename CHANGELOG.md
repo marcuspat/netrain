@@ -7,20 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2025-06-30
+## [0.2.0] - 2025-01-01
 ### Added
-- Initial project setup
-- Git repository initialization
-- GitHub Actions CI workflow for Rust projects
-  - Cargo test runner
-  - Clippy linting
-  - Format checking with rustfmt
+- Protocol-based color coding for network activity graphs
+- Individual protocol sparklines (TCP, UDP, HTTP, HTTPS, DNS, SSH)
+- Real-time packet counting in sparkline titles
+- Protocol activity tracking module (`protocol_activity.rs`)
+
+### Changed
+- Network activity display now shows separate graphs per protocol
+- Protocol stats colors now match packet log colors
+- Activity tick rate optimized to 150ms for better visualization
+- Demo mode timing adjusted for more realistic traffic simulation (200-300ms intervals)
+- Updated repository URL in Cargo.toml
+
+### Fixed
+- Activity graphs now properly display data in both demo and real capture modes
+- Graph responsiveness improved to better match packet log updates
+- Demo mode packet generation reduced to better simulate real network traffic
+
+## [0.1.0] - 2024-12-31
+### Added
+- Matrix rain visualization for network packets
+- Real-time packet capture and analysis
+- Protocol detection (TCP, UDP, HTTP, HTTPS, DNS, SSH)
+- Threat detection system
+- Performance monitoring
+- Demo mode for testing without network access
+- Hex dump view for raw packet data
 - Pre-commit hooks for running tests
-- CHANGELOG.md for tracking project changes
-- Semantic versioning setup
+- GitHub Actions CI workflow for Rust projects
 
-### Project Structure
-- NetRain: A Matrix-inspired rain effect implementation in Rust
-
-[Unreleased]: https://github.com/username/netrain/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/username/netrain/releases/tag/v0.1.0
+[Unreleased]: https://github.com/marcuspat/netrain/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/marcuspat/netrain/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/marcuspat/netrain/releases/tag/v0.1.0

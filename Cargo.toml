@@ -1,11 +1,11 @@
 [package]
 name = "netrain"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["NetRain Contributors"]
 description = "Matrix-style network packet monitor with threat detection"
 license = "MIT"
-repository = "https://github.com/yourusername/netrain"
+repository = "https://github.com/marcuspat/netrain"
 
 [dependencies]
 pcap = "1.1"
