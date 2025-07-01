@@ -10,7 +10,7 @@
 
 A **Matrix-style network packet monitor** with real-time threat detection and stunning terminal visualizations. Built with Rust for maximum performance.
 
-⚡ **Quick Start**: `cargo install netrain` then `sudo netrain` (or `netrain --demo` for demo mode)
+⚡ **Quick Start**: Install Rust → `cargo install netrain` → `sudo netrain` (or `netrain --demo`)
 
 [![CI Status](https://github.com/marcuspat/netrain/workflows/CI/badge.svg)](https://github.com/marcuspat/netrain/actions)
 [![Crates.io](https://img.shields.io/crates/v/netrain.svg)](https://crates.io/crates/netrain)
@@ -61,12 +61,18 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ## 🚀 Installation
 
-### From crates.io
+### From crates.io (Recommended)
+
+**Requirements**: Rust 1.70+ must be installed first
+
 ```bash
 cargo install netrain
 ```
 
-#### From Source
+### From Source
+
+**Requirements**: Rust 1.70+ must be installed first
+
 ```bash
 # Clone the repository
 git clone https://github.com/marcuspat/netrain.git
@@ -78,9 +84,25 @@ cargo build --release
 # The binary will be at ./target/release/netrain
 ```
 
-### Prerequisites
-- **libpcap** development libraries (for packet capture)
-- **Rust** 1.70+ (only for building from source)
+## 📋 Prerequisites
+
+### Install Rust (Required)
+
+NetRain requires Rust 1.70+ for both installation methods above.
+
+```bash
+# Install Rust via rustup (recommended)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Verify installation
+rustc --version
+cargo --version
+```
+
+Alternatively, visit [rustup.rs](https://rustup.rs/) for other installation options.
+
+### Install libpcap (For packet capture)
 
 #### Ubuntu/Debian
 ```bash
@@ -97,7 +119,7 @@ sudo apt-get install libpcap-dev
 #### Windows
 ```bash
 # Install WinPcap or Npcap
-# https://npcap.com/
+# Download from: https://npcap.com/
 ```
 
 
@@ -201,6 +223,16 @@ git push origin feature/amazing-feature
 ## 🐛 Troubleshooting
 
 ### Common Issues
+
+#### "cargo: command not found"
+```bash
+# Install Rust first (includes cargo)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Verify installation
+cargo --version
+```
 
 #### Permission Denied
 ```bash
