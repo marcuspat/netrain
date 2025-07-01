@@ -68,15 +68,23 @@ pub struct RainColumn {
 }
 
 impl RainColumn {
-    fn new(x: usize, _height: usize, character_set: CharacterSet) -> Self {
+    fn new(x: usize, height: usize, character_set: CharacterSet) -> Self {
         let mut rng = rand::thread_rng();
         let z_depth = rng.gen_range(0.3..1.0);
-        let chars = vec![
-            MatrixChar::new(
+        
+        // Create initial characters spread throughout the column
+        let mut chars = Vec::new();
+        let num_chars = rng.gen_range(3..8);
+        for i in 0..num_chars {
+            let y = (i as f32 / num_chars as f32) * height as f32 * rng.gen_range(0.5..0.9);
+            let mut char = MatrixChar::new(
                 random_matrix_char(&mut rng, character_set),
-                0.0
-            )
-        ];
+                y
+            );
+            // Vary the intensity for depth
+            char.intensity = rng.gen_range(0.3..1.0);
+            chars.push(char);
+        }
         
         Self {
             x,
@@ -271,8 +279,8 @@ impl MatrixRain {
                 }
             }
             
-            // Remove faded characters at bottom
-            column.chars.retain(|c| c.y < self.height as f32 && c.intensity > 0.0);
+            // Remove faded characters at bottom  
+            column.chars.retain(|c| c.y < self.height as f32 + 5.0); // Keep some buffer for smooth scrolling
         }
         
         // Update particles
@@ -369,8 +377,9 @@ impl Widget for &mut MatrixRain {
         
         // Render particles first (background layer)
         for particle in &self.particles {
-            let x = particle.x as u16;
-            let y = particle.y as u16;
+            // Scale particle coordinates to render area
+            let x = ((particle.x / self.width as f32) * area.width as f32) as u16;
+            let y = ((particle.y / self.height as f32) * area.height as f32) as u16;
             
             if x < area.width && y < area.height {
                 let alpha = particle.lifetime;
@@ -398,9 +407,17 @@ impl Widget for &mut MatrixRain {
         
         // Render each column
         for column in sorted_columns {
+            // Map column x coordinate to render area
+            if column.x >= self.width {
+                continue; // Skip columns outside bounds
+            }
+            
+            // Scale x coordinate to fit render area
+            let x = ((column.x as f32 / self.width as f32) * area.width as f32) as u16;
+            
             for (_char_idx, char) in column.chars.iter().enumerate() {
-                let x = column.x as u16;
-                let base_y = char.y as u16;
+                // Scale y coordinate to fit render area  
+                let base_y = ((char.y / self.height as f32) * area.height as f32) as u16;
                 
                 // Render trail effect
                 for (trail_idx, &trail_intensity) in char.trail_intensity.iter().enumerate() {
@@ -437,7 +454,7 @@ impl Widget for &mut MatrixRain {
                 }
                 
                 // Render main character
-                if x < area.width && base_y < area.height {
+                if x < area.width && base_y < area.height && char.intensity > 0.01 {
                     let color = if let Some(override_color) = char.color_override {
                         override_color
                     } else {

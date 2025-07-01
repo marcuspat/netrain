@@ -5,7 +5,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use netrain::{
-    matrix_rain::MatrixRain,
+    // matrix_rain::MatrixRain,
+    simple_matrix::SimpleMatrixRain,
     optimized::{parse_packet_optimized, classify_protocol_optimized},
     threat_detection::ThreatDetector,
     Protocol, ProtocolStats, ThreatLevel,
@@ -176,14 +177,23 @@ fn main() -> Result<()> {
 
     // Initialize components
     let terminal_size = terminal.size()?;
-    let matrix_rain = Arc::new(Mutex::new(MatrixRain::new(
-        terminal_size.width as usize * 70 / 100,
-        terminal_size.height as usize,
+    // Initialize simple matrix rain
+    let matrix_width = (terminal_size.width * 70 / 100) as u16;
+    let matrix_height = (terminal_size.height * 40 / 100) as u16;
+    let matrix_rain = Arc::new(Mutex::new(SimpleMatrixRain::new(
+        matrix_width,
+        matrix_height,
     )));
     
     // Enable demo mode if requested
     if demo_mode {
-        matrix_rain.lock().unwrap().enable_demo_mode();
+        let mut rain = matrix_rain.lock().unwrap();
+        // SimpleMatrixRain starts with demo behavior automatically
+        // Add initial columns for immediate visual effect
+        for i in 0..20 {
+            rain.add_column((i * 4) % matrix_width);
+        }
+        drop(rain);
     }
     
     let threat_detector = Arc::new(Mutex::new(ThreatDetector::new()));
@@ -191,15 +201,90 @@ fn main() -> Result<()> {
     let packet_log = Arc::new(Mutex::new(VecDeque::new()));
     let traffic_counter = Arc::new(Mutex::new(0u64));
     let perf_monitor = Arc::new(PerformanceMonitor::new());
+    let raw_packets = Arc::new(Mutex::new(VecDeque::new())); // Store raw packet data for hex dump
 
-    // Start packet capture in background thread (unless in demo mode)
-    if !demo_mode {
+    // Start packet capture in background thread
+    if demo_mode {
+        // Demo mode - generate fake packets
+        let packet_log_clone = Arc::clone(&packet_log);
+        let raw_packets_clone = Arc::clone(&raw_packets);
+        let protocol_stats_clone = Arc::clone(&protocol_stats);
+        let matrix_rain_clone = Arc::clone(&matrix_rain);
+        let traffic_counter_clone = Arc::clone(&traffic_counter);
+        let perf_monitor_clone = Arc::clone(&perf_monitor);
+        let demo_matrix_width = matrix_width;
+        
+        thread::spawn(move || {
+            let demo_ips = vec![
+                ("192.168.1.105", "142.250.185.78"),
+                ("192.168.1.105", "172.217.14.93"),
+                ("192.168.1.105", "8.8.8.8"),
+                ("10.0.0.42", "52.97.188.126"),
+                ("172.16.0.100", "239.255.255.250"),
+            ];
+            
+            let protocols = vec![Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS];
+            
+            loop {
+                thread::sleep(Duration::from_millis(100));
+                
+                // Generate random packet
+                let (src, dst) = demo_ips[rand::random::<usize>() % demo_ips.len()];
+                let protocol = protocols[rand::random::<usize>() % protocols.len()];
+                let size = 60 + rand::random::<usize>() % 1400;
+                
+                // Update counters
+                *traffic_counter_clone.lock().unwrap() += 1;
+                perf_monitor_clone.increment_packet();
+                protocol_stats_clone.lock().unwrap().add_packet(protocol, size);
+                
+                // Update matrix rain
+                let mut rain = matrix_rain_clone.lock().unwrap();
+                let x = rand::random::<u16>() % demo_matrix_width;
+                rain.add_column(x);
+                drop(rain);
+                
+                // Create log entry
+                let timestamp = chrono::Local::now().format("%H:%M:%S");
+                let log_entry = match protocol {
+                    Protocol::HTTP => format!("[{}] HTTP  {} -> {} [{}B]", timestamp, src, dst, size),
+                    Protocol::HTTPS => format!("[{}] HTTPS {} -> {} [{}B]", timestamp, src, dst, size),
+                    Protocol::DNS => format!("[{}] DNS   {} -> {} [{}B]", timestamp, src, dst, size),
+                    Protocol::TCP => format!("[{}] TCP   {} -> {} [{}B]", timestamp, src, dst, size),
+                    Protocol::UDP => format!("[{}] UDP   {} -> {} [{}B]", timestamp, src, dst, size),
+                    _ => format!("[{}] ???   {} -> {} [{}B]", timestamp, src, dst, size),
+                };
+                
+                let mut log = packet_log_clone.lock().unwrap();
+                log.push_front(log_entry);
+                if log.len() > 25 {
+                    log.pop_back();
+                }
+                drop(log);
+                
+                // Generate fake packet data
+                let mut fake_packet = vec![0x45, 0x00]; // IPv4 header start
+                fake_packet.extend_from_slice(&(size as u16).to_be_bytes());
+                for _ in 0..60 {
+                    fake_packet.push(rand::random::<u8>());
+                }
+                
+                let mut raw = raw_packets_clone.lock().unwrap();
+                raw.push_front(fake_packet);
+                if raw.len() > 5 {
+                    raw.pop_back();
+                }
+            }
+        });
+    } else {
         let matrix_rain_clone = Arc::clone(&matrix_rain);
         let threat_detector_clone = Arc::clone(&threat_detector);
         let protocol_stats_clone = Arc::clone(&protocol_stats);
         let packet_log_clone = Arc::clone(&packet_log);
         let traffic_counter_clone = Arc::clone(&traffic_counter);
         let perf_monitor_clone = Arc::clone(&perf_monitor);
+        let raw_packets_clone = Arc::clone(&raw_packets);
+        let capture_matrix_width = matrix_width;
 
         thread::spawn(move || {
             // First, try to find and list available devices
@@ -247,7 +332,7 @@ fn main() -> Result<()> {
                                                         
                                                         // Update matrix rain with traffic
                                                         let mut rain = matrix_rain_clone.lock().unwrap();
-                                                        let x = rand::random::<usize>() % rain.width;
+                                                        let x = rand::random::<u16>() % capture_matrix_width;
                                                         rain.add_column(x);
                                                         
                                                         // Log packet with protocol-specific formatting
@@ -257,38 +342,46 @@ fn main() -> Result<()> {
                                                         // Format based on protocol type
                                                         let log_entry = match protocol {
                                                             Protocol::HTTP => format!(
-                                                                "[{}] HTTP  {} → {} [{}B]",
+                                                                "[{}] HTTP  {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                             Protocol::HTTPS => format!(
-                                                                "[{}] HTTPS {} → {} [{}B]",
+                                                                "[{}] HTTPS {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                             Protocol::DNS => format!(
-                                                                "[{}] DNS   {} → {} [{}B]",
+                                                                "[{}] DNS   {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                             Protocol::SSH => format!(
-                                                                "[{}] SSH   {} → {} [{}B]",
+                                                                "[{}] SSH   {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                             Protocol::TCP => format!(
-                                                                "[{}] TCP   {} → {} [{}B]",
+                                                                "[{}] TCP   {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                             Protocol::UDP => format!(
-                                                                "[{}] UDP   {} → {} [{}B]",
+                                                                "[{}] UDP   {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                             _ => format!(
-                                                                "[{}] ???   {} → {} [{}B]",
+                                                                "[{}] ???   {} -> {} [{}B]",
                                                                 timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
                                                             ),
                                                         };
                                                         
                                                         log.push_front(log_entry);
-                                                        if log.len() > 15 {  // Show fewer entries for cleaner display
+                                                        if log.len() > 25 {  // Show more entries in the dedicated area
                                                             log.pop_back();
+                                                        }
+                                                        
+                                                        // Store raw packet data for hex dump (limit to 64 bytes)
+                                                        let mut raw = raw_packets_clone.lock().unwrap();
+                                                        let packet_sample: Vec<u8> = data.iter().take(64).cloned().collect();
+                                                        raw.push_front(packet_sample);
+                                                        if raw.len() > 5 {  // Keep last 5 packets
+                                                            raw.pop_back();
                                                         }
                                                     }
                                                 }
@@ -337,12 +430,12 @@ fn main() -> Result<()> {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Char('Q') => break,
                     KeyCode::Char('d') | KeyCode::Char('D') => {
-                        // Toggle demo mode
-                        let mut rain = matrix_rain.lock().unwrap();
-                        rain.enable_demo_mode();
+                        // Demo mode already active
                     }
                     _ => {}
                 }
+            } else if let Event::Resize(_width, _height) = event::read()? {
+                // Terminal resized - TODO: implement resize support for matrix rain
             }
         }
 
@@ -352,27 +445,23 @@ fn main() -> Result<()> {
         
         // Update matrix rain animation with interpolated timing
         if delta_time >= 0.016 { // Cap at ~60 FPS
-            matrix_rain.lock().unwrap().update(delta_time);
+            matrix_rain.lock().unwrap().update();
             last_update = now;
         }
 
         // Update traffic rate every second
         if now.duration_since(last_traffic_update) >= Duration::from_secs(1) {
-            let count = *traffic_counter.lock().unwrap();
-            let mut rain = matrix_rain.lock().unwrap();
-            rain.set_traffic_rate(count as f32);
+            // SimpleMatrixRain doesn't have set_traffic_rate, just reset counter
             *traffic_counter.lock().unwrap() = 0; // Reset counter
             last_traffic_update = now;
         }
 
-        // Check threat status and update visual mode
+        // Check threat status (SimpleMatrixRain doesn't have threat visualization yet)
         {
             let detector = threat_detector.lock().unwrap();
-            let threat_level = detector.get_threat_level();
-            let is_ddos = detector.is_ddos_active();
-            
-            let mut rain = matrix_rain.lock().unwrap();
-            rain.set_threat_active(threat_level != ThreatLevel::Low || is_ddos);
+            let _threat_level = detector.get_threat_level();
+            let _is_ddos = detector.is_ddos_active();
+            // TODO: Add threat visualization to SimpleMatrixRain
         }
 
         // Render with simplified layout
@@ -387,23 +476,124 @@ fn main() -> Result<()> {
                 ])
                 .split(f.size());
 
-            // Matrix rain - simple border
-            let mut rain = matrix_rain.lock().unwrap();
-            let matrix_block = Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green));
+            // Matrix rain with packet log and data overlays
+            let matrix_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),   // Top stats bar
+                    Constraint::Percentage(40), // Matrix rain area
+                    Constraint::Percentage(40), // Packet log
+                    Constraint::Length(6),   // Network activity graph
+                ])
+                .split(main_chunks[0]);
             
-            let matrix_area = matrix_block.inner(main_chunks[0]);
-            f.render_widget(matrix_block, main_chunks[0]);
-            f.render_widget(&mut *rain, matrix_area);
+            // Top stats bar with real-time data
+            let traffic_rate = perf_monitor.get_packet_rate();
+            let fps = perf_monitor.get_fps();
+            let detector = threat_detector.lock().unwrap();
+            let threat_level = detector.get_threat_level();
+            drop(detector);
+            
+            let stats_text = vec![
+                Span::styled(" NETRAIN ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("|"),
+                Span::styled(format!(" FPS: {} ", fps), Style::default().fg(if fps >= 55 { Color::Green } else { Color::Yellow })),
+                Span::raw("|"),
+                Span::styled(format!(" {} pkt/s ", traffic_rate), Style::default().fg(Color::Cyan)),
+                Span::raw("|"),
+                Span::styled(
+                    format!(" THREAT: {:?} ", threat_level),
+                    Style::default().fg(match threat_level {
+                        ThreatLevel::Low => Color::Green,
+                        ThreatLevel::Medium => Color::Yellow,
+                        ThreatLevel::High => Color::Red,
+                        ThreatLevel::Critical => Color::Red,
+                    }).add_modifier(if threat_level != ThreatLevel::Low { Modifier::BOLD } else { Modifier::empty() })
+                ),
+            ];
+            
+            let stats_bar = Paragraph::new(Line::from(stats_text))
+                .style(Style::default().bg(Color::Black))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_style(Style::default().fg(Color::DarkGray)));
+            f.render_widget(stats_bar, matrix_chunks[0]);
+            
+            // Matrix rain in the middle
+            let rain = matrix_rain.lock().unwrap();
+            let matrix_block = Block::default()
+                .borders(Borders::LEFT | Borders::RIGHT)
+                .border_style(Style::default().fg(if threat_level != ThreatLevel::Low { Color::Red } else { Color::Green }));
+            
+            let matrix_area = matrix_block.inner(matrix_chunks[1]);
+            f.render_widget(matrix_block, matrix_chunks[1]);
+            f.render_widget(&*rain, matrix_area);
+            
+            // Packet log in matrix panel
+            let log = packet_log.lock().unwrap();
+            let log_items: Vec<ListItem> = log.iter()
+                .enumerate()
+                .map(|(i, entry)| {
+                    let color = if entry.contains("HTTP ") {
+                        Color::Blue
+                    } else if entry.contains("HTTPS") {
+                        Color::Cyan
+                    } else if entry.contains("DNS") {
+                        Color::Yellow
+                    } else if entry.contains("SSH") {
+                        Color::Magenta
+                    } else if entry.contains("TCP") {
+                        Color::Green
+                    } else if entry.contains("UDP") {
+                        Color::LightGreen
+                    } else {
+                        Color::Gray
+                    };
+                    
+                    let style = if i == 0 {
+                        Style::default().fg(color).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(color)
+                    };
+                    ListItem::new(entry.as_str()).style(style)
+                })
+                .collect();
+            
+            let log_list = List::new(log_items)
+                .block(Block::default()
+                    .borders(Borders::TOP | Borders::BOTTOM)
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .title(" [ PACKET LOG ] ")
+                    .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            f.render_widget(log_list, matrix_chunks[2]);
+            drop(log);
+            
+            // Network activity graph at bottom
+            use ratatui::widgets::Sparkline;
+            let sparkline_data: Vec<u64> = (0..50).map(|i| {
+                (traffic_rate + (i as u64 * 3) % 20) * ((i % 3) + 1)
+            }).collect();
+            
+            let sparkline = Sparkline::default()
+                .data(&sparkline_data)
+                .max(100)
+                .style(Style::default().fg(Color::Cyan))
+                .block(Block::default()
+                    .borders(Borders::TOP)
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .title(" [ NETWORK ACTIVITY ] "));
+            f.render_widget(sparkline, matrix_chunks[3]);
 
-            // Right panel - simplified layout
+            // Right panel - properly organized layout
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(10),  // Stats
-                    Constraint::Min(10),     // Packet log
-                    Constraint::Length(2),   // Help
+                    Constraint::Length(6),   // Performance stats
+                    Constraint::Length(10),  // Protocol stats  
+                    Constraint::Length(10),  // Threat monitor
+                    Constraint::Min(15),     // Packet log
+                    Constraint::Length(3),   // Help
                 ])
                 .split(main_chunks[1]);
 
@@ -413,7 +603,7 @@ fn main() -> Result<()> {
             let memory_mb = perf_monitor.get_memory_mb();
             
             let perf_items = vec![
-                ListItem::new(format!("⚡ FPS: {} (Target: 60)", fps))
+                ListItem::new(format!("FPS: {}", fps))
                     .style(if fps >= 55 { 
                         Style::default().fg(Color::Green) 
                     } else if fps >= 30 { 
@@ -421,23 +611,21 @@ fn main() -> Result<()> {
                     } else { 
                         Style::default().fg(Color::Red) 
                     }),
-                ListItem::new(format!("📦 Packets/s: {}", packet_rate))
+                ListItem::new(format!("PKT/s: {}", packet_rate))
                     .style(Style::default().fg(Color::Cyan)),
-                ListItem::new(format!("💾 Memory: {:.1} MB", memory_mb))
+                ListItem::new(format!("MEM: {:.1}MB", memory_mb))
                     .style(Style::default().fg(Color::Blue)),
-                ListItem::new(format!("🚀 Render: {:.1} ms", last_frame_time.elapsed().as_secs_f32() * 1000.0))
-                    .style(Style::default().fg(Color::Magenta)),
             ];
             
             let perf_list = List::new(perf_items)
                 .block(Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(" ⟨ PERFORMANCE ⟩ ")
+                    .title(" PERF ")
                     .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
             f.render_widget(perf_list, right_chunks[0]);
 
-            // Protocol stats with traffic graph
+            // Protocol stats
             let stats = protocol_stats.lock().unwrap();
             let total_packets = stats.get_count(Protocol::TCP) + 
                                     stats.get_count(Protocol::UDP) + 
@@ -446,20 +634,19 @@ fn main() -> Result<()> {
                                     stats.get_count(Protocol::SSH);
             
             let protocol_items: Vec<ListItem> = vec![
-                ListItem::new(format!("⬤ TCP:   {} packets", stats.get_count(Protocol::TCP)))
+                ListItem::new(format!("TCP:  {} pkt", stats.get_count(Protocol::TCP)))
                     .style(Style::default().fg(Color::Yellow)),
-                ListItem::new(format!("⬤ UDP:   {} packets", stats.get_count(Protocol::UDP)))
+                ListItem::new(format!("UDP:  {} pkt", stats.get_count(Protocol::UDP)))
                     .style(Style::default().fg(Color::Blue)),
-                ListItem::new(format!("⬤ HTTP:  {} packets", stats.get_count(Protocol::HTTP)))
+                ListItem::new(format!("HTTP: {} pkt", stats.get_count(Protocol::HTTP)))
                     .style(Style::default().fg(Color::Green)),
-                ListItem::new(format!("⬤ DNS:   {} packets", stats.get_count(Protocol::DNS)))
+                ListItem::new(format!("DNS:  {} pkt", stats.get_count(Protocol::DNS)))
                     .style(Style::default().fg(Color::Magenta)),
-                ListItem::new(format!("⬤ SSH:   {} packets", stats.get_count(Protocol::SSH)))
+                ListItem::new(format!("SSH:  {} pkt", stats.get_count(Protocol::SSH)))
                     .style(Style::default().fg(Color::Cyan)),
-                ListItem::new("".to_string()),
-                ListItem::new(format!("━━━━━━━━━━━━━━━━━━━"))
+                ListItem::new(format!("----------------"))
                     .style(Style::default().fg(Color::DarkGray)),
-                ListItem::new(format!("⬤ TOTAL: {} packets", total_packets))
+                ListItem::new(format!("TOT:  {} pkt", total_packets))
                     .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             ];
             
@@ -467,9 +654,10 @@ fn main() -> Result<()> {
                 .block(Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(" ⟨ PROTOCOL STATS ⟩ ")
+                    .title(" PROTOCOLS ")
                     .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
             f.render_widget(protocols_list, right_chunks[1]);
+            drop(stats);
 
             // Threat detection with animated warnings
             let detector = threat_detector.lock().unwrap();
@@ -481,7 +669,7 @@ fn main() -> Result<()> {
                 vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        "✓ System Secure",
+                        "[OK] System Secure",
                         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(""),
@@ -536,70 +724,70 @@ fn main() -> Result<()> {
                     .borders(Borders::ALL)
                     .border_type(BorderType::Double)
                     .border_style(threat_block_style)
-                    .title(" ⟨ THREAT MONITOR ⟩ ")
+                    .title(" THREATS ")
                     .title_style(threat_block_style.add_modifier(Modifier::BOLD)));
             f.render_widget(threats_widget, right_chunks[2]);
 
-            // Controls
-            let controls = vec![
-                Line::from(vec![
-                    Span::raw("Press "),
-                    Span::styled("Q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw(" to quit | "),
-                    Span::styled("D", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw(" for demo"),
-                ]),
+
+            // Raw packet dump in right panel
+            let mut packet_dump_text = vec![
+                Line::from(Span::styled("RAW PACKET DATA:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                Line::from(""),
             ];
             
-            let controls_widget = Paragraph::new(controls)
-                .alignment(Alignment::Center)
-                .block(Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .title(" ⟨ CONTROLS ⟩ "));
-            f.render_widget(controls_widget, right_chunks[3]);
-
-            // Packet log with protocol-colored entries
+            // Get the actual raw packet data
+            let raw = raw_packets.lock().unwrap();
             let log = packet_log.lock().unwrap();
-            let log_items: Vec<ListItem> = log.iter()
-                .enumerate()
-                .map(|(i, entry)| {
-                    // Color based on protocol type
-                    let color = if entry.contains("HTTP ") {
-                        Color::Blue
-                    } else if entry.contains("HTTPS") {
-                        Color::Cyan
-                    } else if entry.contains("DNS") {
-                        Color::Yellow
-                    } else if entry.contains("SSH") {
-                        Color::Magenta
-                    } else if entry.contains("TCP") {
-                        Color::Green
-                    } else if entry.contains("UDP") {
-                        Color::LightGreen
-                    } else {
-                        Color::Gray
-                    };
-                    
-                    let style = if i == 0 {
-                        Style::default().fg(color).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(color)
-                    };
-                    ListItem::new(entry.as_str()).style(style)
-                })
-                .collect();
             
-            let log_list = List::new(log_items)
+            if !raw.is_empty() && !log.is_empty() {
+                // Show hex dump of recent packet
+                packet_dump_text.push(Line::from(Span::styled("Latest Packet:", Style::default().fg(Color::Green))));
+                packet_dump_text.push(Line::from(Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))));
+                packet_dump_text.push(Line::from(""));
+                
+                // Generate actual hex dump from packet data
+                let packet_data = &raw[0];
+                for (offset, chunk) in packet_data.chunks(16).enumerate() {
+                    let mut hex_part = String::new();
+                    let mut ascii_part = String::new();
+                    
+                    for (i, byte) in chunk.iter().enumerate() {
+                        if i == 8 {
+                            hex_part.push_str("  ");
+                        }
+                        hex_part.push_str(&format!("{:02x} ", byte));
+                        
+                        if byte.is_ascii_graphic() || *byte == b' ' {
+                            ascii_part.push(*byte as char);
+                        } else {
+                            ascii_part.push('.');
+                        }
+                    }
+                    
+                    // Pad hex part if needed
+                    let padding = 50 - hex_part.len();
+                    hex_part.push_str(&" ".repeat(padding));
+                    
+                    let line = format!("{:08x}  {}  {}", offset * 16, hex_part, ascii_part);
+                    packet_dump_text.push(Line::from(Span::styled(line, Style::default().fg(Color::DarkGray))));
+                }
+            } else {
+                packet_dump_text.push(Line::from(Span::styled("Waiting for packets...", Style::default().fg(Color::DarkGray))));
+            }
+            drop(raw);
+            drop(log);
+            
+            let packet_dump = Paragraph::new(packet_dump_text)
+                .wrap(Wrap { trim: false })
                 .block(Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(" ⟨ PACKET LOG ⟩ ")
-                    .title_style(Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)));
-            f.render_widget(log_list, right_chunks[3]);
+                    .title(" [ PACKET DUMP ] ")
+                    .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+            f.render_widget(packet_dump, right_chunks[3]);
             
             // Help text at bottom
-            let help_text = Paragraph::new("Q: Quit | D: Demo Mode | ↑/↓: Scroll")
+            let help_text = Paragraph::new("Q: Quit | D: Demo Mode")
                 .style(Style::default().fg(Color::DarkGray))
                 .alignment(Alignment::Center)
                 .block(Block::default()

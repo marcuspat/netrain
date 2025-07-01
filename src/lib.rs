@@ -2,11 +2,13 @@
 
 pub mod packet;
 pub mod matrix_rain;
+pub mod simple_matrix;
 pub mod threat_detection;
 pub mod optimized;
 
 // Re-export commonly used items for benchmarking and external use
 pub use matrix_rain::{MatrixRain, CharacterSet, VisualMode, Particle};
+pub use simple_matrix::SimpleMatrixRain;
 pub use packet::{parse_packet, classify_protocol, extract_protocol, validate_packet};
 pub use threat_detection::{ThreatDetector, ThreatConfig};
 pub use optimized::{parse_packet_optimized, classify_protocol_optimized};
