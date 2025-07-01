@@ -419,7 +419,7 @@ fn main() -> Result<()> {
     // Main render loop
     let mut last_update = Instant::now();
     let mut last_traffic_update = Instant::now();
-    let mut last_frame_time = Instant::now();
+    let mut _last_frame_time = Instant::now();
     let _frame_time = Duration::from_millis(16); // Target 60 FPS
     
     loop {
@@ -799,7 +799,7 @@ fn main() -> Result<()> {
         // Record frame time for performance monitoring
         let frame_duration = frame_start.elapsed();
         perf_monitor.record_frame(frame_duration);
-        last_frame_time = frame_start;
+        _last_frame_time = frame_start;
         
         // Update memory usage periodically
         if frame_start.duration_since(last_traffic_update) >= Duration::from_secs(5) {
