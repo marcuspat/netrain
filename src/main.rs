@@ -120,9 +120,15 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Show ASCII logo on startup
+    // Show ASCII logo as splash screen
     terminal.draw(|f| {
         let area = f.size();
+        
+        // Clear background first
+        let clear_block = Block::default()
+            .style(Style::default().bg(Color::Black));
+        f.render_widget(clear_block, area);
+        
         let logo_lines: Vec<Line> = ASCII_LOGO
             .lines()
             .map(|line| Line::from(vec![
@@ -137,17 +143,36 @@ fn main() -> Result<()> {
         let vertical_center = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(30),
+                Constraint::Percentage(35),
                 Constraint::Min(10),
-                Constraint::Percentage(30),
+                Constraint::Percentage(35),
             ])
             .split(area);
             
         f.render_widget(logo_paragraph, vertical_center[1]);
+        
+        // Add a loading message
+        let loading_text = Paragraph::new("Initializing packet capture...")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center);
+        
+        let loading_area = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(1),
+                Constraint::Length(3),
+            ])
+            .split(vertical_center[2]);
+            
+        f.render_widget(loading_text, loading_area[1]);
     })?;
 
-    // Wait for 2 seconds to show the logo
-    thread::sleep(Duration::from_secs(2));
+    // Show splash screen briefly
+    thread::sleep(Duration::from_millis(1500));
+    
+    // IMPORTANT: Clear the terminal completely before starting main UI
+    terminal.clear()?;
 
     // Initialize components
     let terminal_size = terminal.size()?;
@@ -240,18 +265,44 @@ fn main() -> Result<()> {
                                                         let x = rand::random::<usize>() % rain.width;
                                                         rain.add_column(x);
                                                         
-                                                        // Log packet with more details
+                                                        // Log packet with protocol-specific formatting
                                                         let mut log = packet_log_clone.lock().unwrap();
                                                         let timestamp = chrono::Local::now().format("%H:%M:%S");
-                                                        log.push_front(format!(
-                                                            "[{}] {:?} {} → {} ({} bytes)",
-                                                            timestamp,
-                                                            protocol,
-                                                            parsed.src_ip,
-                                                            parsed.dst_ip,
-                                                            parsed.length
-                                                        ));
-                                                        if log.len() > 20 {
+                                                        
+                                                        // Format based on protocol type
+                                                        let log_entry = match protocol {
+                                                            Protocol::HTTP => format!(
+                                                                "[{}] HTTP  {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                            Protocol::HTTPS => format!(
+                                                                "[{}] HTTPS {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                            Protocol::DNS => format!(
+                                                                "[{}] DNS   {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                            Protocol::SSH => format!(
+                                                                "[{}] SSH   {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                            Protocol::TCP => format!(
+                                                                "[{}] TCP   {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                            Protocol::UDP => format!(
+                                                                "[{}] UDP   {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                            _ => format!(
+                                                                "[{}] ???   {} → {} [{}B]",
+                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
+                                                            ),
+                                                        };
+                                                        
+                                                        log.push_front(log_entry);
+                                                        if log.len() > 15 {  // Show fewer entries for cleaner display
                                                             log.pop_back();
                                                         }
                                                     }
@@ -342,36 +393,55 @@ fn main() -> Result<()> {
 
         // Render
         terminal.draw(|f| {
-            // Create layout with better proportions
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+            // Create main layout - better spacing
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([
+                    Constraint::Length(3),   // Title bar
+                    Constraint::Min(0),      // Main content
+                ])
                 .split(f.size());
 
-            // Matrix rain visualization with styled border
+            // Title bar
+            let title = Paragraph::new("NetRain - Matrix Network Monitor")
+                .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)));
+            f.render_widget(title, main_chunks[0]);
+
+            // Content area split
+            let content_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .split(main_chunks[1]);
+
+            // Matrix rain visualization with cleaner border
             let mut rain = matrix_rain.lock().unwrap();
             let matrix_block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Thick)
-                .border_style(Style::default().fg(Color::Cyan))
-                .title(" ⟨ MATRIX RAIN ⟩ ")
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Green))
+                .title(" Matrix Rain ")
+                .title_alignment(Alignment::Center);
             
-            let matrix_area = matrix_block.inner(chunks[0]);
-            f.render_widget(matrix_block, chunks[0]);
+            let matrix_area = matrix_block.inner(content_chunks[0]);
+            f.render_widget(matrix_block, content_chunks[0]);
             f.render_widget(&mut *rain, matrix_area);
 
-            // Stats panel with multiple sections
+            // Right panel with better organization
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(6),   // Performance stats
-                    Constraint::Length(10),  // Protocol stats
-                    Constraint::Length(10),  // Threat detection
-                    Constraint::Length(4),   // Controls
-                    Constraint::Min(0),      // Packet log
+                    Constraint::Length(8),   // Performance stats
+                    Constraint::Length(8),   // Protocol breakdown
+                    Constraint::Length(8),   // Threat status
+                    Constraint::Min(10),     // Packet log
+                    Constraint::Length(3),   // Help text
                 ])
-                .split(chunks[1]);
+                .split(content_chunks[1]);
 
             // Performance stats
             let fps = perf_monitor.get_fps();
@@ -525,15 +595,32 @@ fn main() -> Result<()> {
                     .title(" ⟨ CONTROLS ⟩ "));
             f.render_widget(controls_widget, right_chunks[3]);
 
-            // Packet log with styled entries
+            // Packet log with protocol-colored entries
             let log = packet_log.lock().unwrap();
             let log_items: Vec<ListItem> = log.iter()
                 .enumerate()
                 .map(|(i, entry)| {
-                    let style = if i == 0 {
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                    // Color based on protocol type
+                    let color = if entry.contains("HTTP ") {
+                        Color::Blue
+                    } else if entry.contains("HTTPS") {
+                        Color::Cyan
+                    } else if entry.contains("DNS") {
+                        Color::Yellow
+                    } else if entry.contains("SSH") {
+                        Color::Magenta
+                    } else if entry.contains("TCP") {
+                        Color::Green
+                    } else if entry.contains("UDP") {
+                        Color::LightGreen
                     } else {
-                        Style::default().fg(Color::Gray)
+                        Color::Gray
+                    };
+                    
+                    let style = if i == 0 {
+                        Style::default().fg(color).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(color)
                     };
                     ListItem::new(entry.as_str()).style(style)
                 })
@@ -545,7 +632,16 @@ fn main() -> Result<()> {
                     .border_type(BorderType::Rounded)
                     .title(" ⟨ PACKET LOG ⟩ ")
                     .title_style(Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)));
-            f.render_widget(log_list, right_chunks[4]);
+            f.render_widget(log_list, right_chunks[3]);
+            
+            // Help text at bottom
+            let help_text = Paragraph::new("Q: Quit | D: Demo Mode | ↑/↓: Scroll")
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)));
+            f.render_widget(help_text, right_chunks[4]);
         })?;
         
         // Record frame time for performance monitoring

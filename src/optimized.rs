@@ -205,9 +205,21 @@ pub fn classify_protocol_optimized(packet: &super::Packet) -> super::Protocol {
         _ => {}
     }
     
-    // Check for DNS (simplified)
-    if len > 12 && data[2] & 0x80 == 0 && len > 20 && data.contains(&0x03) {
-        return Protocol::DNS;
+    // Check for DNS - be more specific to avoid false positives
+    // DNS typically on port 53, has specific header structure
+    if len > 12 {
+        // Check if it's UDP (IP protocol 17) and has DNS-like structure
+        if len > 9 && data[9] == 0x11 {  // UDP protocol
+            // Check for DNS header flags and valid query structure
+            // DNS header: ID (2), Flags (2), Questions (2), Answers (2), Authority (2), Additional (2)
+            if len > 28 && (data[2] & 0xF8) == 0 {  // Standard query with recursion
+                // Additional checks for DNS packet structure
+                let questions = ((data[4] as u16) << 8) | data[5] as u16;
+                if questions > 0 && questions < 10 {  // Reasonable number of questions
+                    return Protocol::DNS;
+                }
+            }
+        }
     }
     
     // Check IP protocol field
