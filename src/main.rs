@@ -272,8 +272,18 @@ fn main() -> Result<()> {
                 protocol_stats_clone.lock().unwrap().add_packet(protocol, size);
                 protocol_activity_clone.lock().unwrap().record_packet(protocol);
                 
-                // Update matrix rain
+                // Update matrix rain with IP tracking
                 let mut rain = matrix_rain_clone.lock().unwrap();
+                let protocol_str = match protocol {
+                    Protocol::HTTP => "HTTP",
+                    Protocol::HTTPS => "HTTPS", 
+                    Protocol::DNS => "DNS",
+                    Protocol::SSH => "SSH",
+                    Protocol::TCP => "TCP",
+                    Protocol::UDP => "UDP",
+                    _ => "???",
+                };
+                rain.track_ip_packet(&src, &dst, protocol_str);
                 let x = rand::random::<u16>() % demo_matrix_width;
                 rain.add_column(x);
                 drop(rain);
@@ -292,7 +302,7 @@ fn main() -> Result<()> {
                 
                 let mut log = packet_log_clone.lock().unwrap();
                 log.push_front(log_entry);
-                if log.len() > 25 {
+                if log.len() > 50 {
                     log.pop_back();
                 }
                 drop(log);
@@ -370,8 +380,18 @@ fn main() -> Result<()> {
                                                         // Check for threats
                                                         threat_detector_clone.lock().unwrap().analyze_packet(&parsed);
                                                         
-                                                        // Update matrix rain with traffic
+                                                        // Update matrix rain with traffic and IP tracking
                                                         let mut rain = matrix_rain_clone.lock().unwrap();
+                                                        let protocol_str = match protocol {
+                                                            Protocol::HTTP => "HTTP",
+                                                            Protocol::HTTPS => "HTTPS", 
+                                                            Protocol::DNS => "DNS",
+                                                            Protocol::SSH => "SSH",
+                                                            Protocol::TCP => "TCP",
+                                                            Protocol::UDP => "UDP",
+                                                            _ => "???",
+                                                        };
+                                                        rain.track_ip_packet(&parsed.src_ip, &parsed.dst_ip, protocol_str);
                                                         let x = rand::random::<u16>() % capture_matrix_width;
                                                         rain.add_column(x);
                                                         
@@ -412,7 +432,7 @@ fn main() -> Result<()> {
                                                         };
                                                         
                                                         log.push_front(log_entry);
-                                                        if log.len() > 25 {  // Show more entries in the dedicated area
+                                                        if log.len() > 50 {  // Show more entries in the dedicated area
                                                             log.pop_back();
                                                         }
                                                         
@@ -531,9 +551,9 @@ fn main() -> Result<()> {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),   // Top stats bar
-                    Constraint::Percentage(17), // Matrix rain area - reduced by half
-                    Constraint::Percentage(53), // Packet log - increased for better visibility
-                    Constraint::Min(10),   // Network activity graph
+                    Constraint::Percentage(17), // Matrix rain area
+                    Constraint::Percentage(70), // Packet log - much longer now
+                    Constraint::Min(6),    // Network activity graph - much shorter
                 ])
                 .split(main_chunks[0]);
             
@@ -596,8 +616,31 @@ fn main() -> Result<()> {
                 // No packets and no error - show waiting message
                 vec![ListItem::new("Waiting for packets...").style(Style::default().fg(Color::DarkGray))]
             } else {
-                // Normal packet log display
-                log.iter()
+                // Get active IPs and add them at the top
+                let active_ips = rain.get_active_ips();
+                let mut items = Vec::new();
+                
+                // Add top 3 most active IPs if any exist
+                if !active_ips.is_empty() {
+                    items.push(ListItem::new("--- TOP ACTIVE IPs ---").style(
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    ));
+                    
+                    for (i, (ip, count)) in active_ips.iter().enumerate().take(3) {
+                        let ip_entry = format!("#{} {} ({} pkts)", i + 1, ip, count);
+                        items.push(ListItem::new(ip_entry).style(
+                            Style::default().fg(Color::Cyan)
+                        ));
+                    }
+                    
+                    items.push(ListItem::new("--- PACKETS ---").style(
+                        Style::default().fg(Color::DarkGray)
+                    ));
+                }
+                
+                // Add packet log entries - fill the expanded space
+                let packet_entries: Vec<ListItem> = log.iter()
+                    .take(if !active_ips.is_empty() { 35 } else { 40 })
                     .enumerate()
                     .map(|(i, entry)| {
                     let color = if entry.contains("HTTP ") {
@@ -623,7 +666,10 @@ fn main() -> Result<()> {
                     };
                     ListItem::new(entry.as_str()).style(style)
                 })
-                .collect()
+                .collect();
+                
+                items.extend(packet_entries);
+                items
             };
             
             let log_list = List::new(log_items)
