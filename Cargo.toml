@@ -1,9 +1,9 @@
 [package]
 name = "netrain"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 authors = ["NetRain Contributors"]
-description = "Matrix-style network packet monitor with threat detection"
+description = "Matrix-style network packet monitor with IP tracking, threat detection and real-time visualization"
 license = "MIT"
 repository = "https://github.com/marcuspat/netrain"
 homepage = "https://github.com/marcuspat/netrain"

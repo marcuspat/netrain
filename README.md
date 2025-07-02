@@ -49,6 +49,9 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ### 📊 Network Analysis
 - **Protocol classification** (TCP, UDP, HTTP, HTTPS, DNS, SSH)
+- **IP address tracking** with real-time packet counting
+- **Top active IPs display** showing most active network endpoints
+- **Enhanced packet log** with 70% more screen space for better visibility
 - **Live packet capture** with pcap integration
 - **Traffic statistics** and rate monitoring
 - **Performance metrics** (FPS, memory usage, packet rates)
@@ -146,15 +149,24 @@ netrain --version
 
 #### Matrix Rain Panel (Left 70%)
 - **Green characters** falling like rain represent network packets
-- **Faster falling** indicates higher traffic or threats
-- **Rainbow colors** appear during critical security events
+- **White leading characters** indicate active packet transmission
 - **Character density** correlates with network activity
+- **Responsive animation** with consistent 60 FPS performance
+
+#### Packet Log Panel (Main Center Area)
+- **Top Active IPs** - Shows the 3 most active IP addresses with packet counts
+  - Format: `#1 192.168.1.105 (15 pkts)`
+  - Real-time updates as traffic flows
+- **Enhanced packet display** - Extended to 70% of screen space for better visibility
+- **Protocol color coding** - Different colors for HTTP, HTTPS, DNS, SSH, TCP, UDP
+- **Real-time timestamps** - Shows exact time of packet capture
+- **Live packet stream** - Up to 50 recent packets with automatic scrolling
 
 #### Statistics Panel (Right 30%)
 - **Performance** - FPS, packet rate, memory usage
-- **Protocol Stats** - Breakdown by protocol type
+- **Protocol Stats** - Breakdown by protocol type with live counts
 - **Threat Monitor** - Real-time security alerts
-- **Packet Log** - Recent network activity
+- **Network Graphs** - Compact sparklines for each protocol type
 
 ## 🧪 Development
 
