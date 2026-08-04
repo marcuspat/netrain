@@ -1,5 +1,7 @@
 # NetRain Performance Optimization Report
 
+> **Note (Aug 2026):** The "Zero-allocation" 1.2ns / 212x figure below is a Criterion micro-benchmark of an isolated code path. It is not the path exercised by the live packet-capture loop, so it does not reflect real-world/production packet-parsing performance. Treat these numbers as component-level benchmarks, not end-to-end application performance.
+
 ## Executive Summary
 
 This report documents the performance optimizations implemented for NetRain, a Matrix-style network packet monitor. Through systematic benchmarking and optimization, we achieved significant performance improvements across all critical components.
