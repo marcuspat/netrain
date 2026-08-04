@@ -27,7 +27,6 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ## ⚡ Performance That'll Blow Your Mind
 
-- **212x faster** packet parsing (1.2ns vs 100ns target) 🚀
 - **Stable 60 FPS** rendering with thousands of particles
 - **Sub-millisecond** threat detection (29ns per packet)
 - **Zero-allocation** hot paths for maximum efficiency
@@ -43,7 +42,7 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ### 🛡️ Security Monitoring
 - **Port scan detection** with time-window analysis
-- **DDoS attack detection** (SYN floods, traffic spikes)
+- **DDoS-pattern alerts** (traffic spike detection)
 - **Anomaly detection** for malformed packets
 - **Real-time threat visualization** with color-coded alerts
 
@@ -346,5 +345,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | [**secret-scan**](https://github.com/adventurewave-labs/secret-scan) | Rust secret scanner — 51k files/sec, 99% accuracy, obfuscation detection |
 | [**codescope**](https://github.com/adventurewave-labs/codescope) | Rust code-intelligence engine for AI agents — no cloud, no DB |
 | [**Sentinel**](https://github.com/marcuspat/Sentinel) | Deny-by-default agentic sysadmin: Investigate → Plan → Approve → Act |
-| [**turbo-flow**](https://github.com/adventurewave-labs/turbo-flow) | Agentic dev environment — 60+ AI subagents, SPARC methodology |
+| [**turbo-flow**](https://github.com/marcuspat/turbo-flow) | Agentic dev environment — 60+ AI subagents, Ruflo orchestration |
 
