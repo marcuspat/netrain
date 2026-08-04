@@ -346,5 +346,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | [**secret-scan**](https://github.com/adventurewave-labs/secret-scan) | Rust secret scanner — 51k files/sec, 99% accuracy, obfuscation detection |
 | [**codescope**](https://github.com/adventurewave-labs/codescope) | Rust code-intelligence engine for AI agents — no cloud, no DB |
 | [**Sentinel**](https://github.com/marcuspat/Sentinel) | Deny-by-default agentic sysadmin: Investigate → Plan → Approve → Act |
-| [**turbo-flow**](https://github.com/adventurewave-labs/turbo-flow) | Agentic dev environment — 600+ AI subagents, SPARC methodology |
+| [**turbo-flow**](https://github.com/adventurewave-labs/turbo-flow) | Agentic dev environment — 60+ AI subagents, SPARC methodology |
 
