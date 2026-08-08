@@ -18,13 +18,6 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 [![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
 [![GitHub stars](https://img.shields.io/github/stars/marcuspat/netrain?style=social)](https://github.com/marcuspat/netrain/stargazers)
 
-## 🎬 Demo
-
-*Coming Soon: GIFs showing the Matrix rain effect in action*
-
-<!-- ![NetRain Demo](docs/demo.gif) -->
-<!-- ![Threat Detection](docs/threats.gif) -->
-
 ## ⚡ Performance That'll Blow Your Mind
 
 - **Stable 60 FPS** rendering with thousands of particles
