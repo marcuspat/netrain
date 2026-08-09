@@ -18,6 +18,12 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 [![Downloads](https://img.shields.io/crates/d/netrain.svg)](https://crates.io/crates/netrain)
 [![GitHub stars](https://img.shields.io/github/stars/marcuspat/netrain?style=social)](https://github.com/marcuspat/netrain/stargazers)
 
+## 🎬 Demo
+
+![netrain --demo — live packet log, threat detection, and hex dump in the terminal](demo.gif)
+
+*Demo mode (`netrain --demo`) — no root or live interface needed. Recorded from the actual binary with [asciinema](https://asciinema.org) + [agg](https://github.com/asciinema/agg).*
+
 ## ⚡ Performance That'll Blow Your Mind
 
 - **Stable 60 FPS** rendering with thousands of particles
