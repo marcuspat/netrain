@@ -24,10 +24,10 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 *Demo mode (`netrain --demo`) — no root or live interface needed. Recorded from the actual binary with [asciinema](https://asciinema.org) + [agg](https://github.com/asciinema/agg).*
 
-## ⚡ Performance That'll Blow Your Mind
+## ⚡ Performance
 
 - **Stable 60 FPS** rendering with thousands of particles
-- **Sub-millisecond** threat detection (29ns per packet)
+- **Sub-millisecond threat-detection logic** — the detection function itself benchmarks at 29ns per packet in isolation (see [`PERFORMANCE_REPORT.md`](PERFORMANCE_REPORT.md) for the full disclaimer); this is a micro-benchmark of one function, not an end-to-end capture-to-alert measurement including pcap I/O and rendering
 - **Zero-allocation** hot paths for maximum efficiency
 
 ## ✨ Features
@@ -184,8 +184,9 @@ cargo bench
 - **Zero-allocation packet parsing** using unsafe optimizations
 - **Lookup tables** for character generation (11x faster)
 - **Object pooling** for matrix characters and columns
-- **SIMD operations** where applicable
 - **Lock-free atomic counters** for performance metrics
+
+*(SIMD is on the roadmap — see "Recommendations for Further Optimization" in [`PERFORMANCE_REPORT.md`](PERFORMANCE_REPORT.md) — but no SIMD code exists in this codebase today.)*
 
 ### Security Features
 - **Time-window analysis** for pattern detection
@@ -345,4 +346,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | [**codescope**](https://github.com/adventurewave-labs/codescope) | Rust code-intelligence engine for AI agents — no cloud, no DB |
 | [**Sentinel**](https://github.com/marcuspat/Sentinel) | Deny-by-default agentic sysadmin: Investigate → Plan → Approve → Act |
 | [**turbo-flow**](https://github.com/marcuspat/turbo-flow) | Agentic dev environment — 60+ AI subagents, Ruflo orchestration |
-
