@@ -15,10 +15,11 @@ fn create_tcp_packet() -> Packet {
     }
 }
 
-/// Helper to create a TCP SYN packet
+/// Helper to create a TCP SYN packet (SYN flag set at byte 33)
 fn create_syn_packet() -> Packet {
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     data.extend_from_slice(&[0x00; 50]);
+    data[33] = 0x02; // Set TCP SYN flag
     Packet {
         data,
         length: 60,
@@ -230,4 +231,26 @@ fn test_mock_packet_streams() {
     
     assert!(!mixed_detector.is_port_scan(normal_ip));
     assert!(mixed_detector.is_port_scan(attack_ip));
+}
+
+#[test]
+fn test_non_syn_tcp_does_not_trigger_syn_detection() {
+    let mut detector = ThreatDetector::new();
+    
+    // Send non-SYN TCP packets (ACK only) - should NOT trigger SYN flood
+    for _ in 0..150 {
+        let mut packet = create_tcp_packet();
+        packet.data[33] = 0x10; // Set ACK flag only, no SYN
+        detector.analyze_packet(&packet);
+    }
+    
+    // Should not detect SYN flood from ACK-only traffic
+    assert_ne!(detector.get_threat_type(), ThreatType::SynFlood);
+    
+    // But SYN packets should still trigger it
+    for _ in 0..150 {
+        let packet = create_syn_packet();
+        detector.analyze_packet(&packet);
+    }
+    assert_eq!(detector.get_threat_type(), ThreatType::SynFlood);
 }
