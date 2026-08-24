@@ -209,10 +209,11 @@ impl ThreatDetector {
     }
 }
 
-/// Check if a packet is a TCP SYN packet (simplified)
+/// Check if a packet is a TCP SYN packet
+    /// Verifies IP protocol is TCP (byte 9 = 0x06) and TCP SYN flag is set (byte 33, bitmask 0x02)
 fn is_syn_packet(packet: &Packet) -> bool {
     // Very simplified check - in reality would parse TCP flags
-    packet.data.len() >= 20 && packet.data[9] == 0x06 // TCP protocol
+    packet.data.len() >= 34 && packet.data[9] == 0x06 && (packet.data[33] & 0x02) == 0x02 // TCP protocol + SYN flag
 }
 
 /// Extract destination port from packet (simplified)
