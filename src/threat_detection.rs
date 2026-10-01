@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
+use crate::decode::{decode_guess, Transport};
 use crate::{Packet, ThreatType, Severity, Anomaly, ThreatIndicator, ThreatLevel};
 
 /// Configuration for threat detection thresholds
@@ -126,12 +127,24 @@ impl ThreatDetector {
 
         self.packet_stats.packet_count += 1;
 
-        // Check if it's a SYN packet (simplified check)
-        if is_syn_packet(packet) {
-            self.packet_stats.syn_count += 1;
+        // Decode once with real header lengths. A SYN-ACK is a server's reply,
+        // not an attack, so only bare connection attempts are counted.
+        if let Ok(decoded) = decode_guess(&packet.data) {
+            if let Transport::Tcp { dst_port, flags, .. } = decoded.transport {
+                if flags.is_connection_attempt() {
+                    self.packet_stats.syn_count += 1;
+                    // Feed the port-scan tracker from live traffic. Previously
+                    // nothing called add_connection outside of tests, so port
+                    // scans could never be detected by the running binary.
+                    self.add_connection(decoded.src, dst_port);
+                    if self.is_port_scan(decoded.src) {
+                        self.current_threat_type = ThreatType::PortScan;
+                    }
+                }
+            }
         }
 
-        // Update threat type based on analysis
+        // A SYN flood outranks a port scan.
         if self.packet_stats.syn_count >= self.config.syn_flood_threshold {
             self.current_threat_type = ThreatType::SynFlood;
         }
@@ -209,22 +222,59 @@ impl ThreatDetector {
     }
 }
 
-/// Check if a packet is a TCP SYN packet
-    /// Verifies IP protocol is TCP (byte 9 = 0x06) and TCP SYN flag is set (byte 33, bitmask 0x02)
-fn is_syn_packet(packet: &Packet) -> bool {
-    // Very simplified check - in reality would parse TCP flags
-    packet.data.len() >= 34 && packet.data[9] == 0x06 && (packet.data[33] & 0x02) == 0x02 // TCP protocol + SYN flag
+/// Extract the destination port using the real layered decoder.
+fn extract_destination_port(packet: &Packet) -> Option<u16> {
+    decode_guess(&packet.data).ok().and_then(|d| d.dst_port())
 }
 
-/// Extract destination port from packet (simplified)
-fn extract_destination_port(packet: &Packet) -> Option<u16> {
-    // Simplified - would normally parse IP header to find TCP/UDP header
-    if packet.data.len() >= 24 {
-        // Assume TCP packet with standard IP header (20 bytes) + TCP header start
-        // Destination port is at bytes 22-23 (0-indexed)
-        let port_bytes = &packet.data[22..24];
-        Some(u16::from_be_bytes([port_bytes[0], port_bytes[1]]))
-    } else {
-        None
+#[cfg(test)]
+mod live_traffic_tests {
+    use super::*;
+    use crate::decode::testutil::{ethernet, ipv4, tcp};
+    use crate::decode::TcpFlags;
+
+    fn frame(src: [u8; 4], dst_port: u16, flags: u8) -> Packet {
+        let data = ethernet(0x0800, &ipv4(6, src, [10, 0, 0, 1], &tcp(40000, dst_port, flags, b"")));
+        Packet { length: data.len(), data, timestamp: 0, src_ip: String::new(), dst_ip: String::new() }
+    }
+
+    #[test]
+    fn syn_flood_is_detected_in_ethernet_frames() {
+        // Live captures are Ethernet frames; the old fixed-offset check read
+        // the flags from the wrong byte and could never fire on real traffic.
+        let mut detector = ThreatDetector::new();
+        for _ in 0..150 {
+            detector.analyze_packet(&frame([203, 0, 113, 7], 80, TcpFlags::SYN));
+        }
+        assert_eq!(detector.get_threat_type(), ThreatType::SynFlood);
+    }
+
+    #[test]
+    fn syn_ack_replies_are_not_counted_as_attack() {
+        let mut detector = ThreatDetector::new();
+        for port in 0..150 {
+            detector.analyze_packet(&frame([203, 0, 113, 7], 1000 + port, TcpFlags::SYN | TcpFlags::ACK));
+        }
+        assert_eq!(detector.get_threat_type(), ThreatType::Unknown);
+        assert!(!detector.is_port_scan("203.0.113.7".parse().unwrap()));
+    }
+
+    #[test]
+    fn port_scan_is_detected_from_packets_alone() {
+        let mut detector = ThreatDetector::new();
+        for port in 1..=25 {
+            detector.analyze_packet(&frame([198, 51, 100, 9], port, TcpFlags::SYN));
+        }
+        assert!(detector.is_port_scan("198.51.100.9".parse().unwrap()));
+        assert_eq!(detector.get_threat_type(), ThreatType::PortScan);
+    }
+
+    #[test]
+    fn repeated_connections_to_one_port_are_not_a_scan() {
+        let mut detector = ThreatDetector::new();
+        for _ in 0..50 {
+            detector.analyze_packet(&frame([198, 51, 100, 9], 443, TcpFlags::SYN));
+        }
+        assert!(!detector.is_port_scan("198.51.100.9".parse().unwrap()));
     }
 }

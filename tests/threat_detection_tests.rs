@@ -6,6 +6,7 @@ use std::net::IpAddr;
 fn create_tcp_packet() -> Packet {
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     data.extend_from_slice(&[0x00; 50]);
+    data[32] = 0x50; // TCP data offset = 5 words (a valid 20-byte header)
     Packet {
         data,
         length: 60,
@@ -19,6 +20,7 @@ fn create_tcp_packet() -> Packet {
 fn create_syn_packet() -> Packet {
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     data.extend_from_slice(&[0x00; 50]);
+    data[32] = 0x50; // TCP data offset = 5 words (a valid 20-byte header)
     data[33] = 0x02; // Set TCP SYN flag
     Packet {
         data,
@@ -120,6 +122,7 @@ fn test_threat_detector_alert_generation() {
     unusual_port_packet.extend_from_slice(&[0x00; 10]);
     unusual_port_packet.extend_from_slice(&[0x00, 0x50, 0x7A, 0x69]); // Port 31337
     unusual_port_packet.extend_from_slice(&[0x00; 36]);
+    unusual_port_packet[32] = 0x50; // valid TCP data offset
     
     let packet = Packet {
         data: unusual_port_packet,

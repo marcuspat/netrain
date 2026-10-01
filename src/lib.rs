@@ -1,5 +1,6 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
+pub mod decode;
 pub mod packet;
 pub mod matrix_rain;
 pub mod simple_matrix;
@@ -662,6 +663,8 @@ fn create_syn_packet(ip: String) -> Packet {
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     // Add more bytes to make it look like a real packet
     data.extend_from_slice(&[0x00; 50]);
+    data[32] = 0x50; // TCP data offset = 5 words
+    data[33] = 0x02; // SYN - the helper previously never set the flag it is named after
     Packet {
         data,
         length: 60,
@@ -699,6 +702,7 @@ fn create_tcp_packet_with_port(ip: &str, port: u16) -> Packet {
     data.push(port_bytes[1]); // Dest port low byte (23)
     // Fill rest with zeros
     data.extend_from_slice(&[0x00; 36]);
+    data[32] = 0x50; // TCP data offset = 5 words
     Packet {
         data,
         length: 60,
