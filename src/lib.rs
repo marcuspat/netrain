@@ -1,5 +1,6 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
+pub mod alerts;
 pub mod classify;
 pub mod decode;
 pub mod dns;
@@ -16,6 +17,7 @@ pub use matrix_rain::{MatrixRain, CharacterSet, VisualMode, Particle};
 pub use simple_matrix::SimpleMatrixRain;
 pub use packet::{parse_packet, classify_protocol, extract_protocol, validate_packet};
 pub use threat_detection::{ThreatDetector, ThreatConfig};
+pub use alerts::{Alert, AlertKind, EngineConfig, ThreatEngine};
 pub use optimized::{parse_packet_optimized, classify_protocol_optimized};
 use std::collections::HashMap;
 
@@ -538,7 +540,7 @@ pub enum ThreatType {
     Unknown,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Severity {
     Low,
     Medium,
@@ -555,7 +557,7 @@ pub enum ThreatIndicator {
     SuspiciousPayload,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum ThreatLevel {
     Low,
     Medium,

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
+use crate::alerts::{Alert, AlertKind, ThreatEngine};
 use crate::decode::{decode_guess, Decoded, Transport};
 use crate::{Packet, ThreatType, Severity, Anomaly, ThreatIndicator, ThreatLevel};
 
@@ -62,7 +63,15 @@ pub struct ThreatDetector {
     current_threat_type: ThreatType,
     /// Threat indicators for aggregation
     threat_indicators: Vec<ThreatIndicator>,
+    /// Sliding-window engine that produces live, expiring alerts.
+    engine: ThreatEngine,
+    /// When stale legacy connection records were last swept.
+    last_cleanup: Instant,
 }
+
+/// Upper bounds for the legacy `add_connection` table.
+const MAX_LEGACY_SOURCES: usize = 4096;
+const MAX_LEGACY_RECORDS_PER_SOURCE: usize = 1024;
 
 impl ThreatDetector {
     pub fn new() -> Self {
@@ -76,30 +85,50 @@ impl ThreatDetector {
             },
             current_threat_type: ThreatType::Unknown,
             threat_indicators: Vec::new(),
+            engine: ThreatEngine::default(),
+            last_cleanup: Instant::now(),
         }
     }
 
     /// Add a connection record
     pub fn add_connection(&mut self, ip: IpAddr, port: u16) {
-        let record = ConnectionRecord {
-            source_ip: ip,
-            port,
-            timestamp: Instant::now(),
-        };
+        let now = Instant::now();
+        // Bounded: a flood of spoofed sources must not grow this table forever.
+        if self.connections.len() >= MAX_LEGACY_SOURCES && !self.connections.contains_key(&ip) {
+            self.clean_old_connections();
+            if self.connections.len() >= MAX_LEGACY_SOURCES {
+                let oldest = self
+                    .connections
+                    .iter()
+                    .min_by_key(|(_, c)| c.last().map(|r| r.timestamp))
+                    .map(|(ip, _)| *ip);
+                if let Some(oldest) = oldest {
+                    self.connections.remove(&oldest);
+                }
+            }
+        }
+        let records = self.connections.entry(ip).or_default();
+        records.push(ConnectionRecord { source_ip: ip, port, timestamp: now });
+        if records.len() > MAX_LEGACY_RECORDS_PER_SOURCE {
+            let excess = records.len() - MAX_LEGACY_RECORDS_PER_SOURCE;
+            records.drain(..excess);
+        }
 
-        self.connections
-            .entry(ip)
-            .or_insert_with(Vec::new)
-            .push(record);
-
-        // Clean old connections
-        self.clean_old_connections();
+        // Sweeping every record on every packet made this quadratic under
+        // load; once a second is plenty.
+        if now.duration_since(self.last_cleanup) >= Duration::from_secs(1) {
+            self.clean_old_connections();
+            self.last_cleanup = now;
+        }
     }
 
     /// Check if the given IP is performing a port scan
     pub fn is_port_scan(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        if self.engine.is_scanning(ip, now) {
+            return true;
+        }
         if let Some(connections) = self.connections.get(&ip) {
-            let now = Instant::now();
             let recent_ports: HashSet<u16> = connections
                 .iter()
                 .filter(|conn| now.duration_since(conn.timestamp) <= self.config.port_scan_window)
@@ -132,26 +161,47 @@ impl ThreatDetector {
         self.packet_stats.packet_count += 1;
     }
 
-    /// Analyze an already-decoded packet.
+    /// Analyze an already-decoded packet, observed now.
     pub fn analyze_decoded(&mut self, decoded: &Decoded<'_>) {
-        self.count_packet();
+        self.analyze_decoded_at(decoded, Instant::now());
+    }
 
-        // A SYN-ACK is a server's reply, not an attack, so only bare
-        // connection attempts are counted.
-        if let Transport::Tcp { dst_port, flags, .. } = decoded.transport {
+    /// Analyze an already-decoded packet observed at `now` (replay, tests).
+    pub fn analyze_decoded_at(&mut self, decoded: &Decoded<'_>, now: Instant) {
+        self.count_packet();
+        self.engine.observe(decoded, now);
+
+        // Legacy cumulative SYN counter, kept for `ThreatConfig` users.
+        if let Transport::Tcp { flags, .. } = decoded.transport {
             if flags.is_connection_attempt() {
                 self.packet_stats.syn_count += 1;
-                self.add_connection(decoded.src, dst_port);
-                if self.is_port_scan(decoded.src) {
-                    self.current_threat_type = ThreatType::PortScan;
-                }
             }
         }
-
-        // A SYN flood outranks a port scan.
         if self.packet_stats.syn_count >= self.config.syn_flood_threshold {
             self.current_threat_type = ThreatType::SynFlood;
         }
+    }
+
+    /// Live alerts, most severe first.
+    pub fn active_alerts(&self) -> Vec<Alert> {
+        self.engine.active_alerts(Instant::now()).into_iter().cloned().collect()
+    }
+
+    /// Release state for hosts and alerts that have gone quiet. Call
+    /// periodically (the UI does so once a second).
+    pub fn expire(&mut self) {
+        let now = Instant::now();
+        self.engine.expire(now);
+        self.clean_old_connections();
+        // The legacy threat type is only meaningful while its window is open.
+        if now.duration_since(self.packet_stats.window_start) > self.config.ddos_window {
+            self.current_threat_type = ThreatType::Unknown;
+        }
+    }
+
+    /// Access the underlying engine (configuration, time-injected queries).
+    pub fn engine(&self) -> &ThreatEngine {
+        &self.engine
     }
 
     /// Check if DDoS attack is active
@@ -163,8 +213,22 @@ impl ThreatDetector {
         packet_rate > self.config.ddos_packet_rate_threshold
     }
 
-    /// Get the current threat type
+    /// Get the current threat type: the most severe live alert, falling back
+    /// to the legacy cumulative counters.
     pub fn get_threat_type(&self) -> ThreatType {
+        let alerts = self.engine.active_alerts(Instant::now());
+        if alerts.iter().any(|a| a.kind == AlertKind::SynFlood) {
+            return ThreatType::SynFlood;
+        }
+        if self.current_threat_type == ThreatType::SynFlood {
+            return ThreatType::SynFlood;
+        }
+        if alerts
+            .iter()
+            .any(|a| matches!(a.kind, AlertKind::PortScan | AlertKind::HostSweep | AlertKind::StealthScan))
+        {
+            return ThreatType::PortScan;
+        }
         self.current_threat_type.clone()
     }
 
@@ -201,14 +265,16 @@ impl ThreatDetector {
         self.threat_indicators.push(indicator);
     }
 
-    /// Get the overall threat level based on indicators
+    /// Overall threat level: the higher of the live alert level and the
+    /// level implied by manually added indicators.
     pub fn get_threat_level(&self) -> ThreatLevel {
-        match self.threat_indicators.len() {
+        let from_indicators = match self.threat_indicators.len() {
             0 => ThreatLevel::Low,
             1 => ThreatLevel::Medium,
             2 => ThreatLevel::High,
             _ => ThreatLevel::Critical,
-        }
+        };
+        from_indicators.max(self.engine.threat_level(Instant::now()))
     }
 
     /// Clean old connection records
@@ -271,6 +337,35 @@ mod live_traffic_tests {
         }
         assert!(detector.is_port_scan("198.51.100.9".parse().unwrap()));
         assert_eq!(detector.get_threat_type(), ThreatType::PortScan);
+    }
+
+    #[test]
+    fn threat_level_and_alerts_come_from_live_packets() {
+        // Before the engine, nothing in the binary ever added an indicator, so
+        // the panel could only ever show "Low".
+        let mut detector = ThreatDetector::new();
+        assert_eq!(detector.get_threat_level(), ThreatLevel::Low);
+        for port in 1..=25 {
+            detector.analyze_packet(&frame([198, 51, 100, 9], port, TcpFlags::SYN));
+        }
+        assert_eq!(detector.get_threat_level(), ThreatLevel::High);
+        let alerts = detector.active_alerts();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].summary(), "Port scan 198.51.100.9 -> 10.0.0.1 (25 ports in 60s)");
+    }
+
+    #[test]
+    fn legacy_connection_table_is_bounded() {
+        let mut detector = ThreatDetector::new();
+        for i in 0..(MAX_LEGACY_SOURCES as u32 + 500) {
+            detector.add_connection(IpAddr::from(i.to_be_bytes()), 80);
+        }
+        assert!(detector.connections.len() <= MAX_LEGACY_SOURCES);
+        let one = IpAddr::from([9, 9, 9, 9]);
+        for port in 0..3000u16 {
+            detector.add_connection(one, port);
+        }
+        assert!(detector.connections[&one].len() <= MAX_LEGACY_RECORDS_PER_SOURCE);
     }
 
     #[test]

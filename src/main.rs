@@ -458,6 +458,8 @@ fn main() -> Result<()> {
         if now.duration_since(last_traffic_update) >= Duration::from_secs(1) {
             // SimpleMatrixRain doesn't have set_traffic_rate, just reset counter
             *traffic_counter.lock().unwrap() = 0; // Reset counter
+            // Let alerts and idle host state age out.
+            threat_detector.lock().unwrap().expire();
             last_traffic_update = now;
         }
         
@@ -686,7 +688,7 @@ fn main() -> Result<()> {
                 .constraints([
                     Constraint::Length(6),   // Performance stats
                     Constraint::Length(10),  // Protocol stats  
-                    Constraint::Length(8),   // Threat monitor - increased back to 8
+                    Constraint::Length(11),  // Threat monitor: status + up to 3 alert lines
                     Constraint::Min(20),     // Packet dump
                 ])
                 .split(main_chunks[1]);
@@ -761,8 +763,9 @@ fn main() -> Result<()> {
             let threat_level = detector.get_threat_level();
             let threat_type = detector.get_threat_type();
             let is_ddos = detector.is_ddos_active();
+            let alerts = detector.active_alerts();
             
-            let threat_text = if threat_level == ThreatLevel::Low && !is_ddos {
+            let mut threat_text = if threat_level == ThreatLevel::Low && !is_ddos {
                 vec![
                     Line::from(""),
                     Line::from(Span::styled(
@@ -808,6 +811,14 @@ fn main() -> Result<()> {
                 ]
             };
             
+            // Who is doing what: the evidence behind the level above.
+            for alert in alerts.iter().take(3) {
+                threat_text.push(Line::from(Span::styled(
+                    alert.summary(),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+
             let threat_block_style = if threat_level != ThreatLevel::Low || is_ddos {
                 Style::default().fg(Color::Red)
             } else {
