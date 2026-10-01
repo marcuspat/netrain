@@ -52,7 +52,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       uses it: the threat level now comes from live packets and the panel lists up to three alerts.
       The legacy `add_connection` table is bounded and no longer swept on every packet.
       103 -> 117 tests. Known cost: eviction scans the host table when full (item 12).
-- [x] **3. Capture pipeline** (`HASH`). `capture` module: the capture thread decodes and pushes a
+- [x] **3. Capture pipeline** (`fb2129d`). `capture` module: the capture thread decodes and pushes a
       small owned record into a bounded channel (8192) with `try_send`; a full queue drops and
       counts instead of blocking. `state::AppState` owns all display state on the UI thread and
       drains up to 4096 records per frame, so there are no per-packet locks left (was six
