@@ -43,7 +43,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       `optimized::{parse_packet_optimized, classify_protocol_optimized}` now delegate to the same
       code. 91 -> 103 tests. Not done here: `Packet` still carries `String` addresses for API
       compatibility (moved to item 12); `extract_dns_query` now returns `Option<String>`.
-- [x] **2. Threat engine v2** (`HASH`). New `alerts::ThreatEngine`: per-source sliding windows for
+- [x] **2. Threat engine v2** (`8a7b2f2`). New `alerts::ThreatEngine`: per-source sliding windows for
       vertical port scans and horizontal host sweeps, NULL/FIN/Xmas stealth scans, SYN floods
       judged by unanswered SYNs per target (a busy server that answers is not a flood), traffic
       spikes. Alerts carry source, target and evidence, dedupe while the behaviour continues and
