@@ -84,7 +84,7 @@ impl<'a> PacketRef<'a> {
 
 // Ultra-fast zero-allocation packet parsing
 #[inline(always)]
-pub fn parse_packet_zero_alloc(data: &[u8]) -> Result<PacketRef, Box<dyn std::error::Error>> {
+pub fn parse_packet_zero_alloc(data: &[u8]) -> Result<PacketRef<'_>, Box<dyn std::error::Error>> {
     if data.is_empty() {
         return Err("Empty packet data".into());
     }
@@ -105,44 +105,10 @@ pub fn parse_packet_zero_alloc(data: &[u8]) -> Result<PacketRef, Box<dyn std::er
     })
 }
 
-// Optimized packet parsing with zero allocations for IP addresses
+/// Kept for API compatibility; identical to [`crate::packet::parse_packet`].
 #[inline]
 pub fn parse_packet_optimized(data: &[u8]) -> Result<super::Packet, Box<dyn std::error::Error>> {
-    if data.is_empty() {
-        return Err("Empty packet data".into());
-    }
-    
-    // Parse IP addresses - handle both raw IP and Ethernet frames
-    let (src_ip, dst_ip) = if data.len() >= 20 && (data[0] >> 4) == 4 {
-        // Raw IPv4 packet - IPs are at bytes 12-15 (source) and 16-19 (destination)
-        let src = format_ipv4_inline(&data[12..16]);
-        let dst = format_ipv4_inline(&data[16..20]);
-        (src, dst)
-    } else if data.len() >= 34 && data.len() > 14 {
-        // Ethernet frame - check if it contains IPv4 (EtherType 0x0800)
-        if data[12] == 0x08 && data[13] == 0x00 {
-            // IPv4 in Ethernet frame - skip 14-byte Ethernet header
-            if data[14] >> 4 == 4 {
-                let src = format_ipv4_inline(&data[26..30]);
-                let dst = format_ipv4_inline(&data[30..34]);
-                (src, dst)
-            } else {
-                ("0.0.0.0".to_string(), "0.0.0.0".to_string())
-            }
-        } else {
-            ("0.0.0.0".to_string(), "0.0.0.0".to_string())
-        }
-    } else {
-        ("0.0.0.0".to_string(), "0.0.0.0".to_string())
-    };
-    
-    Ok(super::Packet {
-        data: data.to_vec(),
-        length: data.len(),  // Use actual packet length
-        timestamp: 0,
-        src_ip,
-        dst_ip,
-    })
+    crate::packet::parse_packet(data)
 }
 
 // Most optimized version - reuse Vec allocation
@@ -178,120 +144,11 @@ pub fn parse_packet_ultra_optimized(data: &[u8], reuse_vec: &mut Vec<u8>) -> Res
     })
 }
 
-// Inline IP formatting to reduce overhead
-#[inline(always)]
-fn format_ipv4_inline(bytes: &[u8]) -> String {
-    if bytes.len() >= 4 {
-        // Pre-allocate capacity for "255.255.255.255" (15 chars)
-        let mut result = String::with_capacity(15);
-        use std::fmt::Write;
-        let _ = write!(&mut result, "{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]);
-        result
-    } else {
-        "0.0.0.0".to_string()
-    }
-}
-
-// Protocol classification with early returns and inline hints
+/// Kept for API compatibility; identical to [`crate::packet::classify_protocol`].
+/// Never panics.
 #[inline]
 pub fn classify_protocol_optimized(packet: &super::Packet) -> super::Protocol {
-    use super::Protocol;
-    
-    if packet.data.is_empty() {
-        panic!("Invalid protocol bytes");
-    }
-    
-    let data = &packet.data;
-    let len = data.len();
-    
-    // Fast path for common protocols
-    match data.get(0) {
-        Some(&b'S') if len >= 4 && &data[0..4] == b"SSH-" => return Protocol::SSH,
-        Some(&b'G') if len >= 4 && &data[0..4] == b"GET " => return Protocol::HTTP,
-        Some(&b'P') if len >= 5 => {
-            if &data[0..5] == b"POST " { return Protocol::HTTP; }
-            if &data[0..4] == b"PUT " { return Protocol::HTTP; }
-        }
-        Some(&b'D') if len >= 7 && &data[0..7] == b"DELETE " => return Protocol::HTTP,
-        Some(&b'H') if len >= 5 && &data[0..5] == b"HTTP/" => return Protocol::HTTP,
-        Some(&0x16) => return Protocol::HTTPS, // TLS handshake
-        _ => {}
-    }
-    
-    // Handle Ethernet frames
-    let offset = if len > 14 && data[12] == 0x08 && data[13] == 0x00 {
-        14  // Ethernet frame with IPv4
-    } else if len > 0 && (data[0] >> 4) == 4 {
-        0   // Raw IP packet
-    } else {
-        return Protocol::Unknown;
-    };
-    
-    // Check if we have enough data after offset
-    if len <= offset + 9 {
-        return Protocol::Unknown;
-    }
-    
-    // Check IP protocol field (9 bytes into IP header)
-    match data.get(offset + 9) {
-        Some(&0x06) => {
-            // TCP - check ports first for common protocols
-            if len > offset + 23 {  // Ensure we have TCP ports
-                let src_port = ((data[offset + 20] as u16) << 8) | data[offset + 21] as u16;
-                let dst_port = ((data[offset + 22] as u16) << 8) | data[offset + 23] as u16;
-                
-                // Check for SSH on port 22
-                if src_port == 22 || dst_port == 22 {
-                    return Protocol::SSH;
-                }
-                
-                // Check for HTTPS on port 443
-                if src_port == 443 || dst_port == 443 {
-                    return Protocol::HTTPS;
-                }
-                
-                // Check for HTTP on port 80
-                if src_port == 80 || dst_port == 80 {
-                    return Protocol::HTTP;
-                }
-                
-                // For other ports, check application data
-                if len > offset + 40 {  // At least TCP header
-                    let tcp_data_start = offset + 20 + ((data[offset + 32] >> 4) * 4) as usize;
-                    if tcp_data_start < len {
-                        let app_data = &data[tcp_data_start..];
-                        // Check for HTTP methods
-                        if app_data.starts_with(b"GET ") || app_data.starts_with(b"POST ") ||
-                           app_data.starts_with(b"PUT ") || app_data.starts_with(b"DELETE ") ||
-                           app_data.starts_with(b"HTTP/") {
-                            return Protocol::HTTP;
-                        }
-                        // Check for SSH banner (initial handshake only)
-                        if app_data.starts_with(b"SSH-") {
-                            return Protocol::SSH;
-                        }
-                        // Check for HTTPS (TLS handshake)
-                        if app_data.len() > 0 && app_data[0] == 0x16 {
-                            return Protocol::HTTPS;
-                        }
-                    }
-                }
-            }
-            Protocol::TCP
-        }
-        Some(&0x11) => {
-            // UDP - check for DNS on port 53
-            if len > offset + 28 {
-                let src_port = ((data[offset + 20] as u16) << 8) | data[offset + 21] as u16;
-                let dst_port = ((data[offset + 22] as u16) << 8) | data[offset + 23] as u16;
-                if src_port == 53 || dst_port == 53 {
-                    return Protocol::DNS;
-                }
-            }
-            Protocol::UDP
-        }
-        _ => Protocol::Unknown,
-    }
+    crate::classify::classify_bytes(&packet.data)
 }
 
 // Object pool for MatrixChar to reduce allocations

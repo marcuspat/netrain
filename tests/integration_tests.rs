@@ -148,14 +148,24 @@ mod packet_parsing_integration {
 
     #[test]
     fn test_dns_query_extraction() {
+        // A real DNS query for example.com (header + one question).
+        let mut data = vec![0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+        data.extend_from_slice(b"\x07example\x03com\x00");
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+        let length = data.len();
         let dns_packet = Packet {
-            data: vec![0x00; 50], // Simplified DNS packet
-            length: 50,
+            data,
+            length,
             timestamp: 0,
             src_ip: "192.168.1.1".to_string(),
             dst_ip: "192.168.1.2".to_string(),
         };
-        assert_eq!(extract_dns_query(&dns_packet), Some("example.com"));
+        assert_eq!(extract_dns_query(&dns_packet).as_deref(), Some("example.com"));
+
+        // Fifty zero bytes are not a DNS query; the old stub answered
+        // "example.com" for any input.
+        let not_dns = Packet { data: vec![0x00; 50], ..dns_packet };
+        assert_eq!(extract_dns_query(&not_dns), None);
     }
 }
 

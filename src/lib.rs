@@ -1,6 +1,9 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
+pub mod classify;
 pub mod decode;
+pub mod dns;
+pub mod pipeline;
 pub mod packet;
 pub mod matrix_rain;
 pub mod simple_matrix;
@@ -77,7 +80,6 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "Invalid packet length")]
         fn test_validate_packet_invalid_length() {
             let packet = Packet {
                 data: vec![0x45],
@@ -86,7 +88,7 @@ mod tests {
                 src_ip: "192.168.1.1".to_string(),
                 dst_ip: "192.168.1.2".to_string(),
             };
-            validate_packet(&packet);
+            assert!(!validate_packet(&packet));
         }
     }
 
@@ -314,7 +316,7 @@ mod tests {
         fn test_classify_dns_query() {
             let packet = create_dns_query_packet("example.com");
             assert_eq!(classify_protocol(&packet), Protocol::DNS);
-            assert_eq!(extract_dns_query(&packet), Some("example.com"));
+            assert_eq!(extract_dns_query(&packet).as_deref(), Some("example.com"));
         }
 
         #[test]
@@ -440,7 +442,6 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "Invalid protocol bytes")]
         fn test_classify_with_invalid_size() {
             let packet = Packet {
                 data: vec![],
@@ -449,7 +450,9 @@ mod tests {
                 src_ip: "192.168.1.1".to_string(),
                 dst_ip: "192.168.1.2".to_string(),
             };
-            classify_protocol(&packet);
+            // Bytes off the wire must never be able to crash the monitor.
+            assert_eq!(classify_protocol(&packet), Protocol::Unknown);
+            assert_eq!(optimized::classify_protocol_optimized(&packet), Protocol::Unknown);
         }
     }
 }
@@ -651,9 +654,31 @@ pub fn is_tls_handshake(packet: &Packet) -> bool {
     packet.data.len() > 0 && packet.data[0] == 0x16
 }
 
-pub fn extract_dns_query(_packet: &Packet) -> Option<&str> {
-    // For the test, it expects "example.com"
-    Some("example.com")
+/// Extract the queried name from a DNS packet.
+///
+/// Accepts a full frame/IP packet carrying DNS, or a bare DNS message.
+pub fn extract_dns_query(packet: &Packet) -> Option<String> {
+    if let Ok(decoded) = decode::decode_guess(&packet.data) {
+        if let Some(name) = dns::question_name(decoded.payload) {
+            return Some(name);
+        }
+    }
+    dns::question_name(&packet.data)
+}
+
+impl Protocol {
+    /// Short fixed label for logs and the UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            Protocol::TCP => "TCP",
+            Protocol::UDP => "UDP",
+            Protocol::HTTP => "HTTP",
+            Protocol::HTTPS => "HTTPS",
+            Protocol::DNS => "DNS",
+            Protocol::SSH => "SSH",
+            Protocol::Unknown => "???",
+        }
+    }
 }
 
 // Helper functions for tests
@@ -756,8 +781,9 @@ fn create_tls_handshake_packet() -> Packet {
 #[cfg(test)]
 fn create_dns_query_packet(_domain: &str) -> Packet {
     // Create a simplified DNS query packet
-    let mut data = vec![0x00, 0x00, 0x01, 0x00]; // DNS header flags
-    data.extend_from_slice(&[0x00; 8]); // Rest of DNS header
+    let mut data = vec![0x00, 0x00, 0x01, 0x00]; // DNS id + flags (recursion desired)
+    data.extend_from_slice(&[0x00, 0x01]); // QDCOUNT = 1
+    data.extend_from_slice(&[0x00; 6]); // AN/NS/AR counts
     // Add domain name in DNS format (simplified)
     data.extend_from_slice(&[0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65]); // "example"
     data.extend_from_slice(&[0x03, 0x63, 0x6f, 0x6d]); // "com"

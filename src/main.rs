@@ -7,7 +7,8 @@ use crossterm::{
 use netrain::{
     // matrix_rain::MatrixRain,
     simple_matrix::SimpleMatrixRain,
-    optimized::{parse_packet_optimized, classify_protocol_optimized},
+    decode::LinkType,
+    pipeline::observe,
     threat_detection::ThreatDetector,
     protocol_activity::ProtocolActivityTracker,
     Protocol, ProtocolStats, ThreatLevel,
@@ -274,15 +275,7 @@ fn main() -> Result<()> {
                 
                 // Update matrix rain with IP tracking
                 let mut rain = matrix_rain_clone.lock().unwrap();
-                let protocol_str = match protocol {
-                    Protocol::HTTP => "HTTP",
-                    Protocol::HTTPS => "HTTPS", 
-                    Protocol::DNS => "DNS",
-                    Protocol::SSH => "SSH",
-                    Protocol::TCP => "TCP",
-                    Protocol::UDP => "UDP",
-                    _ => "???",
-                };
+                let protocol_str = protocol.label();
                 rain.track_ip_packet(&src, &dst, protocol_str);
                 let x = rand::random::<u16>() % demo_matrix_width;
                 rain.add_column(x);
@@ -290,15 +283,7 @@ fn main() -> Result<()> {
                 
                 // Create log entry
                 let timestamp = chrono::Local::now().format("%H:%M:%S");
-                let log_entry = match protocol {
-                    Protocol::HTTP => format!("[{}] HTTP  {} -> {} [{}B]", timestamp, src, dst, size),
-                    Protocol::HTTPS => format!("[{}] HTTPS {} -> {} [{}B]", timestamp, src, dst, size),
-                    Protocol::DNS => format!("[{}] DNS   {} -> {} [{}B]", timestamp, src, dst, size),
-                    Protocol::SSH => format!("[{}] SSH   {} -> {} [{}B]", timestamp, src, dst, size),
-                    Protocol::TCP => format!("[{}] TCP   {} -> {} [{}B]", timestamp, src, dst, size),
-                    Protocol::UDP => format!("[{}] UDP   {} -> {} [{}B]", timestamp, src, dst, size),
-                    _ => format!("[{}] ???   {} -> {} [{}B]", timestamp, src, dst, size),
-                };
+                let log_entry = format!("[{}] {:<5} {} -> {} [{}B]", timestamp, protocol.label(), src, dst, size);
                 
                 let mut log = packet_log_clone.lock().unwrap();
                 log.push_front(log_entry);
@@ -355,92 +340,48 @@ fn main() -> Result<()> {
                                     .timeout(1000) // Add timeout
                                     .open() {
                                     Ok(mut cap) => {
-                                        
-                                        // Set a filter to capture common traffic
-                                        let _ = cap.filter("ip", true);
-                                        
+                                        // Decode with the capture's real framing instead of guessing.
+                                        let datalink = cap.get_datalink();
+                                        let Some(link) = LinkType::from_dlt(datalink.0) else {
+                                            *capture_error_clone.lock().unwrap() = Some(format!(
+                                                "Unsupported link type {} on {}", datalink.0, device.name
+                                            ));
+                                            return;
+                                        };
+
+                                        // IPv4 and IPv6; everything else is dropped in the kernel.
+                                        let _ = cap.filter("ip or ip6", true);
+
                                         loop {
                                             match cap.next_packet() {
                                                 Ok(packet) => {
-                                                    let data = packet.data.to_vec();
-                                                    
-                                                    // Update traffic counter
                                                     *traffic_counter_clone.lock().unwrap() += 1;
-                                                    
-                                                    // Update performance monitor
                                                     perf_monitor_clone.increment_packet();
-                                                    
-                                                    // Parse packet using optimized version
-                                                    if let Ok(parsed) = parse_packet_optimized(&data) {
-                                                        // Update protocol stats using optimized version
-                                                        let protocol = classify_protocol_optimized(&parsed);
-                                                        protocol_stats_clone.lock().unwrap().add_packet(protocol, parsed.length);
-                                                        protocol_activity_clone.lock().unwrap().record_packet(protocol);
-                                                        
-                                                        // Check for threats
-                                                        threat_detector_clone.lock().unwrap().analyze_packet(&parsed);
-                                                        
-                                                        // Update matrix rain with traffic and IP tracking
+
+                                                    let wire_len = packet.header.len as usize;
+                                                    if let Ok((event, decoded)) = observe(link, packet.data, wire_len) {
+                                                        protocol_stats_clone.lock().unwrap().add_packet(event.protocol, event.wire_len);
+                                                        protocol_activity_clone.lock().unwrap().record_packet(event.protocol);
+                                                        threat_detector_clone.lock().unwrap().analyze_decoded(&decoded);
+
                                                         let mut rain = matrix_rain_clone.lock().unwrap();
-                                                        let protocol_str = match protocol {
-                                                            Protocol::HTTP => "HTTP",
-                                                            Protocol::HTTPS => "HTTPS", 
-                                                            Protocol::DNS => "DNS",
-                                                            Protocol::SSH => "SSH",
-                                                            Protocol::TCP => "TCP",
-                                                            Protocol::UDP => "UDP",
-                                                            _ => "???",
-                                                        };
-                                                        rain.track_ip_packet(&parsed.src_ip, &parsed.dst_ip, protocol_str);
+                                                        rain.track_ip_packet(&event.src.to_string(), &event.dst.to_string(), event.protocol.label());
                                                         let x = rand::random::<u16>() % capture_matrix_width;
                                                         rain.add_column(x);
-                                                        
-                                                        // Log packet with protocol-specific formatting
+                                                        drop(rain);
+
+                                                        let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
                                                         let mut log = packet_log_clone.lock().unwrap();
-                                                        let timestamp = chrono::Local::now().format("%H:%M:%S");
-                                                        
-                                                        // Format based on protocol type
-                                                        let log_entry = match protocol {
-                                                            Protocol::HTTP => format!(
-                                                                "[{}] HTTP  {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                            Protocol::HTTPS => format!(
-                                                                "[{}] HTTPS {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                            Protocol::DNS => format!(
-                                                                "[{}] DNS   {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                            Protocol::SSH => format!(
-                                                                "[{}] SSH   {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                            Protocol::TCP => format!(
-                                                                "[{}] TCP   {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                            Protocol::UDP => format!(
-                                                                "[{}] UDP   {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                            _ => format!(
-                                                                "[{}] ???   {} -> {} [{}B]",
-                                                                timestamp, parsed.src_ip, parsed.dst_ip, parsed.length
-                                                            ),
-                                                        };
-                                                        
-                                                        log.push_front(log_entry);
-                                                        if log.len() > 50 {  // Show more entries in the dedicated area
+                                                        log.push_front(event.log_line(&timestamp));
+                                                        if log.len() > 50 {
                                                             log.pop_back();
                                                         }
-                                                        
-                                                        // Store raw packet data for hex dump (limit to 64 bytes)
+                                                        drop(log);
+
+                                                        // Keep the first 64 bytes of the last 5 packets for the hex dump.
                                                         let mut raw = raw_packets_clone.lock().unwrap();
-                                                        let packet_sample: Vec<u8> = data.iter().take(64).cloned().collect();
-                                                        raw.push_front(packet_sample);
-                                                        if raw.len() > 5 {  // Keep last 5 packets
+                                                        raw.push_front(packet.data.iter().take(64).copied().collect::<Vec<u8>>());
+                                                        if raw.len() > 5 {
                                                             raw.pop_back();
                                                         }
                                                     }

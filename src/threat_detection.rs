@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use crate::decode::{decode_guess, Transport};
+use crate::decode::{decode_guess, Decoded, Transport};
 use crate::{Packet, ThreatType, Severity, Anomaly, ThreatIndicator, ThreatLevel};
 
 /// Configuration for threat detection thresholds
@@ -112,34 +112,38 @@ impl ThreatDetector {
         }
     }
 
-    /// Analyze a packet for threat detection
+    /// Analyze a legacy [`Packet`] of unknown framing.
+    ///
+    /// Live capture should call [`ThreatDetector::analyze_decoded`], which
+    /// reuses the already-decoded packet and its real link type.
     pub fn analyze_packet(&mut self, packet: &Packet) {
-        let now = Instant::now();
-
-        // Reset stats if window expired
-        if now.duration_since(self.packet_stats.window_start) > self.config.ddos_window {
-            self.packet_stats = PacketStats {
-                packet_count: 0,
-                syn_count: 0,
-                window_start: now,
-            };
+        match decode_guess(&packet.data) {
+            Ok(decoded) => self.analyze_decoded(&decoded),
+            Err(_) => self.count_packet(),
         }
+    }
 
+    /// Count one packet towards the traffic-rate window.
+    fn count_packet(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.packet_stats.window_start) > self.config.ddos_window {
+            self.packet_stats = PacketStats { packet_count: 0, syn_count: 0, window_start: now };
+        }
         self.packet_stats.packet_count += 1;
+    }
 
-        // Decode once with real header lengths. A SYN-ACK is a server's reply,
-        // not an attack, so only bare connection attempts are counted.
-        if let Ok(decoded) = decode_guess(&packet.data) {
-            if let Transport::Tcp { dst_port, flags, .. } = decoded.transport {
-                if flags.is_connection_attempt() {
-                    self.packet_stats.syn_count += 1;
-                    // Feed the port-scan tracker from live traffic. Previously
-                    // nothing called add_connection outside of tests, so port
-                    // scans could never be detected by the running binary.
-                    self.add_connection(decoded.src, dst_port);
-                    if self.is_port_scan(decoded.src) {
-                        self.current_threat_type = ThreatType::PortScan;
-                    }
+    /// Analyze an already-decoded packet.
+    pub fn analyze_decoded(&mut self, decoded: &Decoded<'_>) {
+        self.count_packet();
+
+        // A SYN-ACK is a server's reply, not an attack, so only bare
+        // connection attempts are counted.
+        if let Transport::Tcp { dst_port, flags, .. } = decoded.transport {
+            if flags.is_connection_attempt() {
+                self.packet_stats.syn_count += 1;
+                self.add_connection(decoded.src, dst_port);
+                if self.is_port_scan(decoded.src) {
+                    self.current_threat_type = ThreatType::PortScan;
                 }
             }
         }

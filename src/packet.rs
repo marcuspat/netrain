@@ -1,30 +1,40 @@
+//! Legacy `Packet`-based API, kept for crate users. Live capture goes through
+//! [`crate::pipeline`], which knows the link type and does not copy the data.
+
+use crate::classify::classify_bytes;
+use crate::decode::decode_guess;
 use crate::{Packet, Protocol};
 
-/// Parse raw packet data into a Packet struct
+/// Parse raw packet data into a Packet struct.
+///
+/// Accepts an Ethernet frame or a raw IP packet. Addresses come from the
+/// real IP header (IPv4 or IPv6); `length` is the IP total length when only
+/// a truncated IPv4 header is available, otherwise the number of bytes given.
 pub fn parse_packet(data: &[u8]) -> Result<Packet, Box<dyn std::error::Error>> {
     if data.is_empty() {
         return Err("Empty packet data".into());
     }
-    
-    // Extract source and destination IPs if this is an IPv4 packet
-    let (src_ip, dst_ip) = if data.len() >= 20 && (data[0] >> 4) == 4 {
-        // IPv4 packet - IPs are at bytes 12-15 (source) and 16-19 (destination)
-        let src = format!("{}.{}.{}.{}", data[12], data[13], data[14], data[15]);
-        let dst = format!("{}.{}.{}.{}", data[16], data[17], data[18], data[19]);
-        (src, dst)
-    } else {
-        // Default IPs for non-IPv4 packets
-        ("0.0.0.0".to_string(), "0.0.0.0".to_string())
+
+    let (src_ip, dst_ip, length) = match decode_guess(data) {
+        Ok(d) => (d.src.to_string(), d.dst.to_string(), data.len()),
+        Err(_) => {
+            let unknown = || "0.0.0.0".to_string();
+            match ipv4_total_length(data) {
+                Some(total) => (unknown(), unknown(), total.max(data.len())),
+                None => (unknown(), unknown(), data.len()),
+            }
+        }
     };
-    
-    // For the test, it expects a packet with length 60 when data starts with 0x45
-    Ok(Packet {
-        data: data.to_vec(),
-        length: 60,  // The test expects length 60
-        timestamp: 0,
-        src_ip,
-        dst_ip,
-    })
+
+    Ok(Packet { data: data.to_vec(), length, timestamp: 0, src_ip, dst_ip })
+}
+
+fn ipv4_total_length(data: &[u8]) -> Option<usize> {
+    if data.len() >= 4 && data[0] >> 4 == 4 {
+        Some(usize::from(u16::from_be_bytes([data[2], data[3]])))
+    } else {
+        None
+    }
 }
 
 /// Extract protocol from packet
@@ -41,55 +51,19 @@ pub fn extract_protocol(packet: &Packet) -> Protocol {
     }
 }
 
-/// Validate packet integrity
+/// Check that the declared length is consistent with the captured bytes.
+///
+/// A packet is consistent when `length` equals the number of bytes held, or
+/// equals the IPv4 total-length field (a capture truncated by the snap
+/// length). Returns `false` instead of panicking on inconsistent input.
 pub fn validate_packet(packet: &Packet) -> bool {
-    if packet.data.len() == 1 && packet.length == 1500 {
-        panic!("Invalid packet length");
+    if packet.data.is_empty() {
+        return false;
     }
-    true
+    packet.length == packet.data.len() || ipv4_total_length(&packet.data) == Some(packet.length)
 }
 
-/// Classify protocol based on packet content
+/// Classify protocol based on packet content. Never panics.
 pub fn classify_protocol(packet: &Packet) -> Protocol {
-    if packet.data.is_empty() {
-        panic!("Invalid protocol bytes");
-    }
-    
-    // Check for SSH protocol
-    if packet.data.starts_with(b"SSH-") {
-        return Protocol::SSH;
-    }
-    
-    // Check for HTTP
-    if packet.data.starts_with(b"GET ") || packet.data.starts_with(b"POST ") || 
-       packet.data.starts_with(b"HTTP/") || packet.data.starts_with(b"PUT ") ||
-       packet.data.starts_with(b"DELETE ") {
-        return Protocol::HTTP;
-    }
-    
-    // Check for TLS/HTTPS (TLS handshake starts with 0x16)
-    if packet.data.len() > 0 && packet.data[0] == 0x16 {
-        return Protocol::HTTPS;
-    }
-    
-    // Check for DNS (typically uses port 53, check for DNS query structure)
-    if packet.data.len() > 12 && packet.data[2] & 0x80 == 0 {
-        // Simple DNS detection - check if it could be a DNS query
-        // Real implementation would check more thoroughly
-        if packet.data.len() > 20 && packet.data.contains(&0x03) {
-            return Protocol::DNS;
-        }
-    }
-    
-    // Check IP protocol field if this is an IP packet
-    if packet.data.len() > 9 && (packet.data[0] >> 4) == 4 {
-        // IPv4 packet
-        match packet.data[9] {
-            0x06 => Protocol::TCP,
-            0x11 => Protocol::UDP,
-            _ => Protocol::Unknown,
-        }
-    } else {
-        Protocol::Unknown
-    }
+    classify_bytes(&packet.data)
 }

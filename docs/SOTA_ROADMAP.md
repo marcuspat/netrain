@@ -35,9 +35,14 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       Linux cooked v1/v2; IPv4 with real IHL, IPv6 with extension headers, TCP/UDP/ICMP, fragments.
       Property-tested to never panic. Threat detector now uses it: SYN (not SYN-ACK) counting works
       on Ethernet frames and port scans are tracked from packets. 75 -> 91 tests, 0 failing.
-- [ ] **1. One parse path.** Capture thread uses `decode` with the capture's real datalink type.
-      Replace the stubbed `packet`/`optimized` parsers (hard-coded length, panics, fake DNS name),
-      carry `IpAddr` instead of `String`, IPv6 in the packet log and top talkers, BPF `ip or ip6`.
+- [x] **1. One parse path.** `pipeline::observe` decodes with the capture's real datalink type and
+      classifies via `classify`; the capture thread uses it (no per-packet `Packet` copy), BPF is
+      `ip or ip6`, IPv6 shows in the log and top talkers, byte stats use wire length. Stubs gone:
+      `parse_packet` no longer hard-codes length 60, `classify_protocol*` and `validate_packet` no
+      longer panic, `extract_dns_query` parses the real question (new `dns` module, terminal-safe).
+      `optimized::{parse_packet_optimized, classify_protocol_optimized}` now delegate to the same
+      code. 91 -> 103 tests. Not done here: `Packet` still carries `String` addresses for API
+      compatibility (moved to item 12); `extract_dns_query` now returns `Option<String>`.
 - [ ] **2. Threat engine v2.** Per-source sliding windows with bounded memory (cap + eviction);
       vertical and horizontal scans, NULL/Xmas/FIN scans, SYN flood by SYN:SYN-ACK ratio; alerts
       with source, evidence and expiry; `get_threat_level` derived from live alerts so the panel
