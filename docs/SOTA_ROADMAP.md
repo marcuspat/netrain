@@ -35,7 +35,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       Linux cooked v1/v2; IPv4 with real IHL, IPv6 with extension headers, TCP/UDP/ICMP, fragments.
       Property-tested to never panic. Threat detector now uses it: SYN (not SYN-ACK) counting works
       on Ethernet frames and port scans are tracked from packets. 75 -> 91 tests, 0 failing.
-- [x] **1. One parse path.** `pipeline::observe` decodes with the capture's real datalink type and
+- [x] **1. One parse path** (`9d45eca`). `pipeline::observe` decodes with the capture's real datalink type and
       classifies via `classify`; the capture thread uses it (no per-packet `Packet` copy), BPF is
       `ip or ip6`, IPv6 shows in the log and top talkers, byte stats use wire length. Stubs gone:
       `parse_packet` no longer hard-codes length 60, `classify_protocol*` and `validate_packet` no
