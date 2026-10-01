@@ -1,6 +1,7 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
 pub mod alerts;
+pub mod capture;
 pub mod classify;
 pub mod decode;
 pub mod dns;
@@ -8,6 +9,7 @@ pub mod pipeline;
 pub mod packet;
 pub mod matrix_rain;
 pub mod simple_matrix;
+pub mod state;
 pub mod threat_detection;
 pub mod optimized;
 pub mod protocol_activity;

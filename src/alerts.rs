@@ -171,23 +171,28 @@ impl ThreatEngine {
 
     /// Feed one decoded packet observed at `now`.
     pub fn observe(&mut self, decoded: &Decoded<'_>, now: Instant) {
+        self.observe_parts(decoded.src, decoded.dst, decoded.transport, now);
+    }
+
+    /// Feed one packet from its addresses and transport summary.
+    pub fn observe_parts(&mut self, src: IpAddr, dst: IpAddr, transport: Transport, now: Instant) {
         self.observe_rate(now);
 
-        let Transport::Tcp { dst_port, flags, .. } = decoded.transport else {
+        let Transport::Tcp { dst_port, flags, .. } = transport else {
             return;
         };
 
         if flags.is_connection_attempt() {
-            self.observe_attempt(decoded.src, decoded.dst, dst_port, now);
-            self.observe_syn(decoded.dst, now);
+            self.observe_attempt(src, dst, dst_port, now);
+            self.observe_syn(dst, now);
         } else if flags.syn() && flags.ack() {
             // The *sender* of a SYN-ACK is a host answering its SYNs.
-            if let Some(target) = self.targets.get_mut(&decoded.src) {
+            if let Some(target) = self.targets.get_mut(&src) {
                 target.syn_acks.push_back(now);
                 target.last_seen = now;
             }
         } else if flags.is_null() || flags.is_xmas() || flags.0 & 0x3f == crate::decode::TcpFlags::FIN {
-            self.observe_stealth(decoded.src, now);
+            self.observe_stealth(src, now);
         }
     }
 

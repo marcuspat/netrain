@@ -52,9 +52,16 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       uses it: the threat level now comes from live packets and the panel lists up to three alerts.
       The legacy `add_connection` table is bounded and no longer swept on every packet.
       103 -> 117 tests. Known cost: eviction scans the host table when full (item 12).
-- [ ] **3. Capture pipeline.** Bounded channel from capture thread to UI state instead of six
-      per-packet mutexes; batch drain per frame; kernel/interface drop counters from pcap stats
-      shown in the UI; default interface via `Device::lookup` rather than `en0`.
+- [x] **3. Capture pipeline** (`HASH`). `capture` module: the capture thread decodes and pushes a
+      small owned record into a bounded channel (8192) with `try_send`; a full queue drops and
+      counts instead of blocking. `state::AppState` owns all display state on the UI thread and
+      drains up to 4096 records per frame, so there are no per-packet locks left (was six
+      mutexes). Kernel and interface drops come from pcap stats once a second and show as `DROP`
+      in the PERF panel. Default interface is chosen by `choose_device` (non-loopback, up,
+      running, has an address) on any OS instead of `en0`. Capture errors after start are now
+      reported instead of silently ending the thread. Fixed the double `event::read()` that
+      swallowed an event. 117 -> 128 tests. Smoke-tested in a pty: `--demo` renders, and live
+      capture as root in the dev container showed real HTTPS packets with real addresses.
 - [ ] **4. CLI and safe terminal handling.** `clap`: `--interface`, `--list-interfaces`,
       `--filter <bpf>`, `--read <file.pcap>`, `--demo`. Panic hook and RAII guard that always
       restore the terminal. Clear error (not a blank UI) when capture cannot open.

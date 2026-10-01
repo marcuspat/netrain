@@ -168,11 +168,20 @@ impl ThreatDetector {
 
     /// Analyze an already-decoded packet observed at `now` (replay, tests).
     pub fn analyze_decoded_at(&mut self, decoded: &Decoded<'_>, now: Instant) {
+        self.analyze_parts(decoded.src, decoded.dst, decoded.transport, now);
+    }
+
+    /// Analyze a packet summary that crossed the capture channel.
+    pub fn analyze_event_at(&mut self, event: &crate::pipeline::PacketEvent, now: Instant) {
+        self.analyze_parts(event.src, event.dst, event.transport, now);
+    }
+
+    fn analyze_parts(&mut self, src: IpAddr, dst: IpAddr, transport: Transport, now: Instant) {
         self.count_packet();
-        self.engine.observe(decoded, now);
+        self.engine.observe_parts(src, dst, transport, now);
 
         // Legacy cumulative SYN counter, kept for `ThreatConfig` users.
-        if let Transport::Tcp { flags, .. } = decoded.transport {
+        if let Transport::Tcp { flags, .. } = transport {
             if flags.is_connection_attempt() {
                 self.packet_stats.syn_count += 1;
             }

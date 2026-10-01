@@ -5,13 +5,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use netrain::{
-    // matrix_rain::MatrixRain,
+    capture::{self, CaptureSink, DeviceInfo},
+    decode::{LinkType, Transport},
+    pipeline::PacketEvent,
     simple_matrix::SimpleMatrixRain,
-    decode::LinkType,
-    pipeline::observe,
-    threat_detection::ThreatDetector,
-    protocol_activity::ProtocolActivityTracker,
-    Protocol, ProtocolStats, ThreatLevel,
+    state::AppState,
+    Protocol, ThreatLevel,
 };
 use pcap::{Capture, Device};
 use ratatui::{
@@ -26,7 +25,7 @@ use std::{
     collections::VecDeque,
     env,
     io,
-    sync::{Arc, Mutex, atomic::{AtomicU64, AtomicUsize, Ordering}},
+    sync::{Mutex, atomic::{AtomicUsize, Ordering}},
     thread,
     time::{Duration, Instant},
 };
@@ -47,9 +46,6 @@ const ASCII_LOGO: &str = r#"
 struct PerformanceMonitor {
     fps_counter: AtomicUsize,
     frame_times: Mutex<VecDeque<Duration>>,
-    packet_count: AtomicU64,
-    packet_rate: AtomicU64,
-    last_packet_reset: Mutex<Instant>,
     memory_usage: AtomicUsize,
 }
 
@@ -58,9 +54,6 @@ impl PerformanceMonitor {
         Self {
             fps_counter: AtomicUsize::new(0),
             frame_times: Mutex::new(VecDeque::with_capacity(60)),
-            packet_count: AtomicU64::new(0),
-            packet_rate: AtomicU64::new(0),
-            last_packet_reset: Mutex::new(Instant::now()),
             memory_usage: AtomicUsize::new(0),
         }
     }
@@ -81,18 +74,6 @@ impl PerformanceMonitor {
         }
     }
     
-    fn increment_packet(&self) {
-        self.packet_count.fetch_add(1, Ordering::Relaxed);
-        
-        // Update packet rate every second
-        let mut last_reset = self.last_packet_reset.lock().unwrap();
-        if last_reset.elapsed() >= Duration::from_secs(1) {
-            let count = self.packet_count.swap(0, Ordering::Relaxed);
-            self.packet_rate.store(count, Ordering::Relaxed);
-            *last_reset = Instant::now();
-        }
-    }
-    
     fn update_memory_usage(&self) {
         // Simple memory estimation based on active data structures
         // In production, you'd use system memory APIs
@@ -104,12 +85,123 @@ impl PerformanceMonitor {
         self.fps_counter.load(Ordering::Relaxed)
     }
     
-    fn get_packet_rate(&self) -> u64 {
-        self.packet_rate.load(Ordering::Relaxed)
-    }
-    
     fn get_memory_mb(&self) -> f32 {
         self.memory_usage.load(Ordering::Relaxed) as f32 / 1024.0
+    }
+}
+
+/// Most records applied per frame; the rest wait for the next one so a
+/// flood cannot freeze rendering.
+const DRAIN_BUDGET: usize = 4096;
+
+/// Demo mode: synthesise plausible traffic without touching the network.
+fn run_demo(sink: CaptureSink) {
+    let demo_ips: [([u8; 4], [u8; 4]); 5] = [
+        ([192, 168, 1, 105], [142, 250, 185, 78]),
+        ([192, 168, 1, 105], [172, 217, 14, 93]),
+        ([192, 168, 1, 105], [8, 8, 8, 8]),
+        ([10, 0, 0, 42], [52, 97, 188, 126]),
+        ([172, 16, 0, 100], [239, 255, 255, 250]),
+    ];
+    let protocols =
+        [Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS, Protocol::SSH];
+
+    loop {
+        // Vary the pacing for more realistic traffic patterns.
+        thread::sleep(Duration::from_millis(200 + rand::random::<u64>() % 100));
+        for _ in 0..rand::random::<usize>() % 3 {
+            let (src, dst) = demo_ips[rand::random::<usize>() % demo_ips.len()];
+            let size = 60 + rand::random::<usize>() % 1400;
+            let event = PacketEvent {
+                src: src.into(),
+                dst: dst.into(),
+                src_port: None,
+                dst_port: None,
+                protocol: protocols[rand::random::<usize>() % protocols.len()],
+                transport: Transport::Other,
+                wire_len: size,
+            };
+            let mut fake_packet = vec![0x45, 0x00];
+            fake_packet.extend_from_slice(&(size as u16).to_be_bytes());
+            fake_packet.extend((0..60).map(|_| rand::random::<u8>()));
+            if !sink.submit_event(event, &fake_packet) {
+                return; // UI has exited
+            }
+        }
+    }
+}
+
+/// Live capture: open the best interface and feed the sink until the UI exits.
+fn run_capture(sink: CaptureSink) {
+    let devices = match Device::list() {
+        Ok(devices) => devices,
+        Err(e) => {
+            sink.error(format!("Failed to list network devices: {}\nTry running with 'sudo netrain'", e));
+            return;
+        }
+    };
+    let infos: Vec<DeviceInfo> = devices
+        .iter()
+        .map(|d| DeviceInfo {
+            name: d.name.clone(),
+            up: d.flags.is_up(),
+            running: d.flags.is_running(),
+            loopback: d.flags.is_loopback(),
+            has_address: !d.addresses.is_empty(),
+        })
+        .collect();
+    let device = match capture::choose_device(&infos, None) {
+        Ok(index) => devices[index].clone(),
+        Err(message) => {
+            sink.error(message);
+            return;
+        }
+    };
+    let name = device.name.clone();
+
+    let opened = Capture::from_device(device)
+        .and_then(|builder| builder.promisc(true).snaplen(5000).timeout(1000).open());
+    let mut cap = match opened {
+        Ok(cap) => cap,
+        Err(e) => {
+            sink.error(format!(
+                "Cannot capture on {}: run with 'sudo netrain' or use '--demo' mode\nError: {}",
+                name, e
+            ));
+            return;
+        }
+    };
+
+    // Decode with the capture's real framing instead of guessing.
+    let datalink = cap.get_datalink();
+    let Some(link) = LinkType::from_dlt(datalink.0) else {
+        sink.error(format!("Unsupported link type {} on {}", datalink.0, name));
+        return;
+    };
+
+    // IPv4 and IPv6; everything else is dropped in the kernel.
+    let _ = cap.filter("ip or ip6", true);
+
+    let mut last_stats = Instant::now();
+    loop {
+        match cap.next_packet() {
+            Ok(packet) => {
+                if !sink.submit(link, packet.data, packet.header.len as usize) {
+                    return; // UI has exited
+                }
+            }
+            Err(pcap::Error::TimeoutExpired) => {}
+            Err(e) => {
+                sink.error(format!("Capture on {} stopped: {}", name, e));
+                return;
+            }
+        }
+        if last_stats.elapsed() >= Duration::from_secs(1) {
+            if let Ok(stats) = cap.stats() {
+                sink.set_kernel_stats(u64::from(stats.dropped), u64::from(stats.if_dropped));
+            }
+            last_stats = Instant::now();
+        }
     }
 }
 
@@ -204,223 +296,27 @@ fn main() -> Result<()> {
     // Initialize simple matrix rain
     let matrix_width = (terminal_size.width * 70 / 100) as u16;
     let matrix_height = (terminal_size.height * 40 / 100) as u16;
-    let matrix_rain = Arc::new(Mutex::new(SimpleMatrixRain::new(
-        matrix_width,
-        matrix_height,
-    )));
-    
+    let mut matrix_rain = SimpleMatrixRain::new(matrix_width, matrix_height);
+
     // Enable demo mode if requested
     if demo_mode {
-        let mut rain = matrix_rain.lock().unwrap();
-        // SimpleMatrixRain starts with demo behavior automatically
         // Add initial columns for immediate visual effect
         for i in 0..20 {
-            rain.add_column((i * 4) % matrix_width);
+            matrix_rain.add_column((i * 4) % matrix_width);
         }
-        drop(rain);
     }
-    
-    let threat_detector = Arc::new(Mutex::new(ThreatDetector::new()));
-    let protocol_stats = Arc::new(Mutex::new(ProtocolStats::new()));
-    let packet_log = Arc::new(Mutex::new(VecDeque::new()));
-    let traffic_counter = Arc::new(Mutex::new(0u64));
-    let perf_monitor = Arc::new(PerformanceMonitor::new());
-    let raw_packets = Arc::new(Mutex::new(VecDeque::new())); // Store raw packet data for hex dump
-    let protocol_activity = Arc::new(Mutex::new(ProtocolActivityTracker::new()));
-    let capture_error = Arc::new(Mutex::new(None::<String>)); // Track capture errors
 
-    // Start packet capture in background thread
+    // All display state lives on this thread. The capture thread only sends
+    // packet records through a bounded channel, so it never takes a lock and
+    // never stalls behind rendering.
+    let mut app = AppState::new();
+    let (sink, capture_rx, capture_counters) = capture::channel(capture::DEFAULT_QUEUE);
+    let perf_monitor = PerformanceMonitor::new();
+
     if demo_mode {
-        // Demo mode - generate fake packets
-        let packet_log_clone = Arc::clone(&packet_log);
-        let raw_packets_clone = Arc::clone(&raw_packets);
-        let protocol_stats_clone = Arc::clone(&protocol_stats);
-        let matrix_rain_clone = Arc::clone(&matrix_rain);
-        let traffic_counter_clone = Arc::clone(&traffic_counter);
-        let perf_monitor_clone = Arc::clone(&perf_monitor);
-        let protocol_activity_clone = Arc::clone(&protocol_activity);
-        let demo_matrix_width = matrix_width;
-        
-        thread::spawn(move || {
-            let demo_ips = vec![
-                ("192.168.1.105", "142.250.185.78"),
-                ("192.168.1.105", "172.217.14.93"),
-                ("192.168.1.105", "8.8.8.8"),
-                ("10.0.0.42", "52.97.188.126"),
-                ("172.16.0.100", "239.255.255.250"),
-            ];
-            
-            let protocols = vec![Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS, Protocol::SSH];
-            
-            loop {
-                // Vary the sleep time for more realistic traffic patterns
-                let sleep_ms = 200 + (rand::random::<u64>() % 100); // 200-300ms
-                thread::sleep(Duration::from_millis(sleep_ms));
-                
-                // Generate fewer packets for more realistic traffic
-                let num_packets = rand::random::<usize>() % 3; // 0-2 packets
-                
-                // Skip this cycle sometimes for even more realistic gaps
-                if num_packets > 0 {
-                    for _ in 0..num_packets {
-                    let (src, dst) = demo_ips[rand::random::<usize>() % demo_ips.len()];
-                    let protocol = protocols[rand::random::<usize>() % protocols.len()];
-                    let size = 60 + rand::random::<usize>() % 1400;
-                
-                // Update counters
-                *traffic_counter_clone.lock().unwrap() += 1;
-                perf_monitor_clone.increment_packet();
-                protocol_stats_clone.lock().unwrap().add_packet(protocol, size);
-                protocol_activity_clone.lock().unwrap().record_packet(protocol);
-                
-                // Update matrix rain with IP tracking
-                let mut rain = matrix_rain_clone.lock().unwrap();
-                let protocol_str = protocol.label();
-                rain.track_ip_packet(&src, &dst, protocol_str);
-                let x = rand::random::<u16>() % demo_matrix_width;
-                rain.add_column(x);
-                drop(rain);
-                
-                // Create log entry
-                let timestamp = chrono::Local::now().format("%H:%M:%S");
-                let log_entry = format!("[{}] {:<5} {} -> {} [{}B]", timestamp, protocol.label(), src, dst, size);
-                
-                let mut log = packet_log_clone.lock().unwrap();
-                log.push_front(log_entry);
-                if log.len() > 50 {
-                    log.pop_back();
-                }
-                drop(log);
-                
-                // Generate fake packet data
-                let mut fake_packet = vec![0x45, 0x00]; // IPv4 header start
-                fake_packet.extend_from_slice(&(size as u16).to_be_bytes());
-                for _ in 0..60 {
-                    fake_packet.push(rand::random::<u8>());
-                }
-                
-                let mut raw = raw_packets_clone.lock().unwrap();
-                raw.push_front(fake_packet);
-                if raw.len() > 5 {
-                    raw.pop_back();
-                }
-                    } // End of for loop
-                } // End of if num_packets > 0
-            }
-        });
+        thread::spawn(move || run_demo(sink));
     } else {
-        let matrix_rain_clone = Arc::clone(&matrix_rain);
-        let threat_detector_clone = Arc::clone(&threat_detector);
-        let protocol_stats_clone = Arc::clone(&protocol_stats);
-        let packet_log_clone = Arc::clone(&packet_log);
-        let traffic_counter_clone = Arc::clone(&traffic_counter);
-        let perf_monitor_clone = Arc::clone(&perf_monitor);
-        let raw_packets_clone = Arc::clone(&raw_packets);
-        let protocol_activity_clone = Arc::clone(&protocol_activity);
-        let capture_error_clone = Arc::clone(&capture_error);
-        let capture_matrix_width = matrix_width;
-
-        thread::spawn(move || {
-            // First, try to find and list available devices
-            match Device::list() {
-                Ok(devices) => {
-                    // Silent device selection - no debug output in UI
-                    // Try to find en0 (active WiFi interface) first
-                    let target_device = devices.iter()
-                        .find(|d| d.name == "en0")
-                        .or_else(|| devices.iter().find(|d| d.name.starts_with("en")))
-                        .or_else(|| devices.first());
-                    
-                    if let Some(device) = target_device {
-                        match Capture::from_device(device.clone()) {
-                            Ok(cap_builder) => {
-                                match cap_builder
-                                    .promisc(true)
-                                    .snaplen(5000)
-                                    .timeout(1000) // Add timeout
-                                    .open() {
-                                    Ok(mut cap) => {
-                                        // Decode with the capture's real framing instead of guessing.
-                                        let datalink = cap.get_datalink();
-                                        let Some(link) = LinkType::from_dlt(datalink.0) else {
-                                            *capture_error_clone.lock().unwrap() = Some(format!(
-                                                "Unsupported link type {} on {}", datalink.0, device.name
-                                            ));
-                                            return;
-                                        };
-
-                                        // IPv4 and IPv6; everything else is dropped in the kernel.
-                                        let _ = cap.filter("ip or ip6", true);
-
-                                        loop {
-                                            match cap.next_packet() {
-                                                Ok(packet) => {
-                                                    *traffic_counter_clone.lock().unwrap() += 1;
-                                                    perf_monitor_clone.increment_packet();
-
-                                                    let wire_len = packet.header.len as usize;
-                                                    if let Ok((event, decoded)) = observe(link, packet.data, wire_len) {
-                                                        protocol_stats_clone.lock().unwrap().add_packet(event.protocol, event.wire_len);
-                                                        protocol_activity_clone.lock().unwrap().record_packet(event.protocol);
-                                                        threat_detector_clone.lock().unwrap().analyze_decoded(&decoded);
-
-                                                        let mut rain = matrix_rain_clone.lock().unwrap();
-                                                        rain.track_ip_packet(&event.src.to_string(), &event.dst.to_string(), event.protocol.label());
-                                                        let x = rand::random::<u16>() % capture_matrix_width;
-                                                        rain.add_column(x);
-                                                        drop(rain);
-
-                                                        let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
-                                                        let mut log = packet_log_clone.lock().unwrap();
-                                                        log.push_front(event.log_line(&timestamp));
-                                                        if log.len() > 50 {
-                                                            log.pop_back();
-                                                        }
-                                                        drop(log);
-
-                                                        // Keep the first 64 bytes of the last 5 packets for the hex dump.
-                                                        let mut raw = raw_packets_clone.lock().unwrap();
-                                                        raw.push_front(packet.data.iter().take(64).copied().collect::<Vec<u8>>());
-                                                        if raw.len() > 5 {
-                                                            raw.pop_back();
-                                                        }
-                                                    }
-                                                }
-                                                Err(pcap::Error::TimeoutExpired) => {
-                                                    // Timeout is normal, continue
-                                                    continue;
-                                                }
-                                                Err(_) => {
-                                                    // Error reading packet, silently break
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        *capture_error_clone.lock().unwrap() = Some(format!(
-                                            "Permission denied: Run with 'sudo netrain' or use '--demo' mode\nError: {}", e
-                                        ));
-                                    }
-                                }
-                            }
-                            Err(_) => {
-                                // Failed to create capture, silently skip
-                            }
-                        }
-                    } else {
-                        *capture_error_clone.lock().unwrap() = Some(
-                            "No network device found. Check your network configuration.".to_string()
-                        );
-                    }
-                }
-                Err(e) => {
-                    *capture_error_clone.lock().unwrap() = Some(format!(
-                        "Failed to list network devices: {}\nTry running with 'sudo netrain'", e
-                    ));
-                }
-            }
-        });
+        thread::spawn(move || run_capture(sink));
     }
 
     // Main render loop
@@ -434,15 +330,23 @@ fn main() -> Result<()> {
         let frame_start = Instant::now();
         // Handle input
         if event::poll(Duration::from_millis(5))? {
+            // Read exactly once per poll: a second read here used to block
+            // on (and swallow) the next event.
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                    _ => {}
+                if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q')) {
+                    break;
                 }
-            } else if let Event::Resize(_width, _height) = event::read()? {
-                // Terminal resized - TODO: implement resize support for matrix rain
             }
         }
+
+        // Fold everything the capture thread queued since the last frame.
+        let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
+        app.drain(&capture_rx, DRAIN_BUDGET, &timestamp, Instant::now(), |event| {
+            matrix_rain.track_ip_packet(&event.src.to_string(), &event.dst.to_string(), event.protocol.label());
+            let x = rand::random::<u16>() % matrix_width.max(1);
+            matrix_rain.add_column(x);
+        });
+        let drops = capture_counters.snapshot();
 
         // Calculate smooth frame timing
         let now = Instant::now();
@@ -450,31 +354,20 @@ fn main() -> Result<()> {
         
         // Update matrix rain animation with interpolated timing
         if delta_time >= 0.016 { // Cap at ~60 FPS
-            matrix_rain.lock().unwrap().update();
+            matrix_rain.update();
             last_update = now;
         }
 
         // Update traffic rate every second
         if now.duration_since(last_traffic_update) >= Duration::from_secs(1) {
-            // SimpleMatrixRain doesn't have set_traffic_rate, just reset counter
-            *traffic_counter.lock().unwrap() = 0; // Reset counter
-            // Let alerts and idle host state age out.
-            threat_detector.lock().unwrap().expire();
+            app.tick_second();
             last_traffic_update = now;
         }
         
         // Update protocol activity tracker every 150ms for smoother display
         if now.duration_since(last_activity_tick) >= Duration::from_millis(150) {
-            protocol_activity.lock().unwrap().tick();
+            app.activity.tick();
             last_activity_tick = now;
-        }
-
-        // Check threat status (SimpleMatrixRain doesn't have threat visualization yet)
-        {
-            let detector = threat_detector.lock().unwrap();
-            let _threat_level = detector.get_threat_level();
-            let _is_ddos = detector.is_ddos_active();
-            // TODO: Add threat visualization to SimpleMatrixRain
         }
 
         // Render with simplified layout
@@ -501,11 +394,10 @@ fn main() -> Result<()> {
                 .split(main_chunks[0]);
             
             // Top stats bar with real-time data
-            let traffic_rate = perf_monitor.get_packet_rate();
+            let traffic_rate = app.packet_rate;
             let fps = perf_monitor.get_fps();
-            let detector = threat_detector.lock().unwrap();
+            let detector = &app.detector;
             let threat_level = detector.get_threat_level();
-            drop(detector);
             
             let stats_text = vec![
                 Span::styled(format!(" NETRAIN v{} ", VERSION), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -536,18 +428,18 @@ fn main() -> Result<()> {
             f.render_widget(stats_bar, matrix_chunks[0]);
             
             // Matrix rain in the middle
-            let rain = matrix_rain.lock().unwrap();
+            let rain = &matrix_rain;
             let matrix_block = Block::default()
                 .borders(Borders::LEFT | Borders::RIGHT)
                 .border_style(Style::default().fg(if threat_level != ThreatLevel::Low { Color::Red } else { Color::Green }));
             
             let matrix_area = matrix_block.inner(matrix_chunks[1]);
             f.render_widget(matrix_block, matrix_chunks[1]);
-            f.render_widget(&*rain, matrix_area);
+            f.render_widget(rain, matrix_area);
             
             // Packet log in matrix panel
-            let capture_err = capture_error.lock().unwrap();
-            let log = packet_log.lock().unwrap();
+            let capture_err = &app.capture_error;
+            let log = &app.packet_log;
             
             // Check if there's a capture error to display
             let log_items: Vec<ListItem> = if let Some(error_msg) = capture_err.as_ref() {
@@ -622,14 +514,12 @@ fn main() -> Result<()> {
                     .title(" [ PACKET LOG ] ")
                     .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             f.render_widget(log_list, matrix_chunks[2]);
-            drop(log);
-            drop(capture_err);
             
             // Network activity graph at bottom - color-coded by protocol
             use ratatui::widgets::Sparkline;
             
             // Get protocol activity data
-            let activity = protocol_activity.lock().unwrap();
+            let activity = &app.activity;
             
             // Create a layout for multiple protocol sparklines
             let protocol_chunks = Layout::default()
@@ -680,7 +570,6 @@ fn main() -> Result<()> {
                         
                 f.render_widget(sparkline, protocol_chunks[i]);
             }
-            drop(activity);
 
             // Right panel - properly organized layout
             let right_chunks = Layout::default()
@@ -695,7 +584,7 @@ fn main() -> Result<()> {
 
             // Performance stats
             let fps = perf_monitor.get_fps();
-            let packet_rate = perf_monitor.get_packet_rate();
+            let packet_rate = app.packet_rate;
             let memory_mb = perf_monitor.get_memory_mb();
             
             let perf_items = vec![
@@ -711,6 +600,14 @@ fn main() -> Result<()> {
                     .style(Style::default().fg(Color::Cyan)),
                 ListItem::new(format!("MEM: {:.1}MB", memory_mb))
                     .style(Style::default().fg(Color::Blue)),
+                // Packets that were on the wire but never displayed: kernel
+                // buffer overruns, interface drops, and our own full queue.
+                ListItem::new(format!("DROP: {}", drops.total_dropped()))
+                    .style(if drops.total_dropped() == 0 {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                    }),
             ];
             
             let perf_list = List::new(perf_items)
@@ -722,7 +619,7 @@ fn main() -> Result<()> {
             f.render_widget(perf_list, right_chunks[0]);
 
             // Protocol stats
-            let stats = protocol_stats.lock().unwrap();
+            let stats = &app.stats;
             let total_packets = stats.get_count(Protocol::TCP) + 
                                     stats.get_count(Protocol::UDP) + 
                                     stats.get_count(Protocol::HTTP) + 
@@ -756,10 +653,9 @@ fn main() -> Result<()> {
                     .title(" PROTOCOLS ")
                     .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
             f.render_widget(protocols_list, right_chunks[1]);
-            drop(stats);
 
             // Threat detection with animated warnings
-            let detector = threat_detector.lock().unwrap();
+            let detector = &app.detector;
             let threat_level = detector.get_threat_level();
             let threat_type = detector.get_threat_type();
             let is_ddos = detector.is_ddos_active();
@@ -841,8 +737,8 @@ fn main() -> Result<()> {
             let mut packet_dump_text = vec![];
             
             // Get the actual raw packet data
-            let raw = raw_packets.lock().unwrap();
-            let log = packet_log.lock().unwrap();
+            let raw = &app.raw_packets;
+            let log = &app.packet_log;
             
             if !raw.is_empty() && !log.is_empty() {
                 // Show hex dump of latest packet
@@ -879,8 +775,6 @@ fn main() -> Result<()> {
             } else {
                 packet_dump_text.push(Line::from(Span::styled("Waiting for packets...", Style::default().fg(Color::DarkGray))));
             }
-            drop(raw);
-            drop(log);
             
             let packet_dump = Paragraph::new(packet_dump_text)
                 .wrap(Wrap { trim: false })
