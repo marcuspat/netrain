@@ -165,7 +165,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       (overflow checks on) and 3 M in release. `fuzz/` holds `cargo-fuzz` targets (decode,
       inspect, pcap_file) for coverage-guided runs; they are **not run** - no nightly toolchain
       was installable here. 222 -> 226 tests.
-- [x] **14. CI and supply chain** (`HASH`). Clippy is clean under `-D warnings` (28 -> 0) and the
+- [x] **14. CI and supply chain** (`c0c5f34`). Clippy is clean under `-D warnings` (28 -> 0) and the
       tree is `cargo fmt` clean (one formatting-only commit, listed in `.git-blame-ignore-revs`).
       `.github/workflows/ci.yml`: fmt, clippy, tests on Linux and macOS, bench build, the root-only
       live-capture test under sudo, an MSRV check (1.82, now declared in `Cargo.toml`), a
