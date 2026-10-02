@@ -1,0 +1,36 @@
+[package]
+name = "netrain-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+netrain = { path = ".." }
+
+# Not part of the main workspace: needs a nightly toolchain and cargo-fuzz.
+[workspace]
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inspect"
+path = "fuzz_targets/inspect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pcap_file"
+path = "fuzz_targets/pcap_file.rs"
+test = false
+doc = false
+bench = false

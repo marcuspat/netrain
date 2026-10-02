@@ -11,18 +11,18 @@ mod packet_parsing_integration {
     fn test_parse_packet_workflow() {
         // Test full packet parsing workflow
         let raw_data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
-        
+
         // Parse the packet
         let packet = parse_packet(&raw_data).expect("Failed to parse packet");
-        
+
         // Verify parsed packet
         assert_eq!(packet.length, 60);
         assert_eq!(packet.data.len(), 10);
-        
+
         // Extract protocol
         let protocol = extract_protocol(&packet);
         assert_eq!(protocol, Protocol::TCP);
-        
+
         // Validate packet
         assert!(validate_packet(&packet));
     }
@@ -40,12 +40,12 @@ mod packet_parsing_integration {
         let tcp_data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
         let tcp_packet = parse_packet(&tcp_data).unwrap();
         assert_eq!(classify_protocol(&tcp_packet), Protocol::TCP);
-        
+
         // Test UDP packet
         let udp_data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11];
         let udp_packet = parse_packet(&udp_data).unwrap();
         assert_eq!(classify_protocol(&udp_packet), Protocol::UDP);
-        
+
         // Test HTTP packet
         let http_data = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec();
         let http_packet = Packet {
@@ -56,7 +56,7 @@ mod packet_parsing_integration {
             dst_ip: "192.168.1.2".to_string(),
         };
         assert_eq!(classify_protocol(&http_packet), Protocol::HTTP);
-        
+
         // Test HTTPS/TLS packet
         let tls_data = vec![0x16, 0x03, 0x01, 0x00, 0x00];
         let tls_packet = Packet {
@@ -67,7 +67,7 @@ mod packet_parsing_integration {
             dst_ip: "192.168.1.2".to_string(),
         };
         assert_eq!(classify_protocol(&tls_packet), Protocol::HTTPS);
-        
+
         // Test SSH packet
         let ssh_data = b"SSH-2.0-OpenSSH_8.2\r\n".to_vec();
         let ssh_packet = Packet {
@@ -91,7 +91,7 @@ mod packet_parsing_integration {
             dst_ip: "192.168.1.2".to_string(),
         };
         assert_eq!(get_http_method(&get_packet), Some("GET"));
-        
+
         let post_request = b"POST /api/data HTTP/1.1\r\n".to_vec();
         let post_packet = Packet {
             data: post_request,
@@ -101,7 +101,7 @@ mod packet_parsing_integration {
             dst_ip: "192.168.1.2".to_string(),
         };
         assert_eq!(get_http_method(&post_packet), Some("POST"));
-        
+
         let put_request = b"PUT /api/update HTTP/1.1\r\n".to_vec();
         let put_packet = Packet {
             data: put_request,
@@ -111,7 +111,7 @@ mod packet_parsing_integration {
             dst_ip: "192.168.1.2".to_string(),
         };
         assert_eq!(get_http_method(&put_packet), Some("PUT"));
-        
+
         let delete_request = b"DELETE /api/item HTTP/1.1\r\n".to_vec();
         let delete_packet = Packet {
             data: delete_request,
@@ -134,7 +134,7 @@ mod packet_parsing_integration {
             dst_ip: "192.168.1.2".to_string(),
         };
         assert!(is_tls_handshake(&tls_packet));
-        
+
         let non_tls = vec![0x45, 0x00, 0x00, 0x3c];
         let non_tls_packet = Packet {
             data: non_tls,
@@ -148,14 +148,30 @@ mod packet_parsing_integration {
 
     #[test]
     fn test_dns_query_extraction() {
+        // A real DNS query for example.com (header + one question).
+        let mut data = vec![0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+        data.extend_from_slice(b"\x07example\x03com\x00");
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+        let length = data.len();
         let dns_packet = Packet {
-            data: vec![0x00; 50], // Simplified DNS packet
-            length: 50,
+            data,
+            length,
             timestamp: 0,
             src_ip: "192.168.1.1".to_string(),
             dst_ip: "192.168.1.2".to_string(),
         };
-        assert_eq!(extract_dns_query(&dns_packet), Some("example.com"));
+        assert_eq!(
+            extract_dns_query(&dns_packet).as_deref(),
+            Some("example.com")
+        );
+
+        // Fifty zero bytes are not a DNS query; the old stub answered
+        // "example.com" for any input.
+        let not_dns = Packet {
+            data: vec![0x00; 50],
+            ..dns_packet
+        };
+        assert_eq!(extract_dns_query(&not_dns), None);
     }
 }
 
@@ -174,7 +190,7 @@ mod matrix_rain_integration {
         };
         let normal_speed = calculate_fall_speed(&normal_column);
         assert!(normal_speed > 0.0 && normal_speed <= 2.0);
-        
+
         // Test threat column fall speed (with exclamation marks)
         let threat_column = RainColumn {
             x: 20,
@@ -193,12 +209,12 @@ mod matrix_rain_integration {
             intensity: 1.0,
             age: 0,
         };
-        
+
         // Test single fade
         fade_character(&mut matrix_char);
         assert_eq!(matrix_char.intensity, 0.9);
         assert_eq!(matrix_char.age, 1);
-        
+
         // Test fade to zero
         for _ in 0..9 {
             fade_character(&mut matrix_char);
@@ -213,12 +229,12 @@ mod matrix_rain_integration {
         let low_traffic = 100.0;
         let low_density = calculate_rain_density(low_traffic);
         assert!(low_density > 0.0 && low_density < 0.1);
-        
+
         // Test medium traffic
         let medium_traffic = 5000.0;
         let medium_density = calculate_rain_density(medium_traffic);
         assert_eq!(medium_density, 0.5);
-        
+
         // Test high traffic (capped at 1.0)
         let high_traffic = 15000.0;
         let high_density = calculate_rain_density(high_traffic);
@@ -228,21 +244,21 @@ mod matrix_rain_integration {
     #[test]
     fn test_rain_manager_workflow() {
         let mut rain_manager = RainManager::new(80, 24);
-        
+
         // Test adding columns
         rain_manager.add_column(10);
         rain_manager.add_column(20);
         rain_manager.add_column(30);
         assert_eq!(rain_manager.active_columns(), 3);
-        
+
         // Test adding faded columns
         rain_manager.add_faded_column(15);
         rain_manager.add_faded_column(25);
-        
+
         // Test removing faded columns
         rain_manager.remove_faded_columns();
         assert_eq!(rain_manager.active_columns(), 3); // Only active columns remain
-        
+
         // Test adding column out of bounds
         rain_manager.add_column(100); // Should not be added
         assert_eq!(rain_manager.active_columns(), 3);
@@ -258,15 +274,15 @@ mod threat_detection_integration {
     fn test_port_scan_detection_workflow() {
         let mut detector = ThreatDetector::new();
         let scanner_ip: IpAddr = "192.168.1.100".parse().unwrap();
-        
+
         // Simulate port scan - many ports from same IP
         for port in 1000..1050 {
             detector.add_connection(scanner_ip, port);
         }
-        
+
         // Check if port scan is detected
         assert!(detector.is_port_scan(scanner_ip));
-        
+
         // Test normal traffic - should not trigger
         let normal_ip: IpAddr = "192.168.1.200".parse().unwrap();
         detector.add_connection(normal_ip, 80);
@@ -277,7 +293,7 @@ mod threat_detection_integration {
     #[test]
     fn test_syn_flood_detection_workflow() {
         let mut detector = ThreatDetector::new();
-        
+
         // Create SYN packets (TCP with protocol 0x06)
         // The default threshold is 100 SYN packets, and we need to send them quickly
         // to trigger DDoS detection (1000+ packets per second)
@@ -291,10 +307,10 @@ mod threat_detection_integration {
             };
             detector.analyze_packet(&syn_packet);
         }
-        
+
         // Check if DDoS is detected (need 1000+ packet rate)
         assert!(detector.is_ddos_active());
-        
+
         // Check threat type only if we have enough SYN packets
         if detector.get_threat_type() == ThreatType::SynFlood {
             assert_eq!(detector.get_threat_type(), ThreatType::SynFlood);
@@ -304,7 +320,7 @@ mod threat_detection_integration {
     #[test]
     fn test_anomaly_detection_workflow() {
         let mut detector = ThreatDetector::new();
-        
+
         // Test malformed packet detection (too small)
         let malformed_packet = Packet {
             data: vec![0xFF, 0xFF],
@@ -316,15 +332,17 @@ mod threat_detection_integration {
         let anomaly = detector.detect_anomaly(&malformed_packet);
         assert!(anomaly.is_some());
         assert_eq!(anomaly.unwrap().severity, Severity::High);
-        
+
         // Test unusual port detection (31337 - elite port)
         let elite_port_packet = Packet {
             data: vec![
-                0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x50, 0x7A, 0x69, // Source port 80, dest port 31337 (0x7A69)
+                0x45, 0x00, 0x00, 0x28, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x7A,
+                0x69, // Source port 80, dest port 31337 (0x7A69)
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // seq + ack
+                0x50, 0x10, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, // offset 5, ACK, window
             ],
-            length: 24,
+            length: 40,
             timestamp: 0,
             src_ip: "192.168.1.1".to_string(),
             dst_ip: "192.168.1.2".to_string(),
@@ -332,7 +350,7 @@ mod threat_detection_integration {
         let port_anomaly = detector.detect_anomaly(&elite_port_packet);
         assert!(port_anomaly.is_some());
         assert_eq!(port_anomaly.unwrap().severity, Severity::Medium);
-        
+
         // Test all 0xFF packet (malformed)
         let all_ff_packet = Packet {
             data: vec![0xFF; 30],
@@ -349,18 +367,18 @@ mod threat_detection_integration {
     #[test]
     fn test_threat_level_aggregation() {
         let mut detector = ThreatDetector::new();
-        
+
         // No indicators = Low threat
         assert_eq!(detector.get_threat_level(), ThreatLevel::Low);
-        
+
         // Add one indicator = Medium threat
         detector.add_threat_indicator(ThreatIndicator::PortScan);
         assert_eq!(detector.get_threat_level(), ThreatLevel::Medium);
-        
+
         // Add second indicator = High threat
         detector.add_threat_indicator(ThreatIndicator::HighTrafficRate);
         assert_eq!(detector.get_threat_level(), ThreatLevel::High);
-        
+
         // Add third indicator = Critical threat
         detector.add_threat_indicator(ThreatIndicator::SuspiciousPayload);
         assert_eq!(detector.get_threat_level(), ThreatLevel::Critical);
@@ -374,30 +392,30 @@ mod protocol_statistics_integration {
     #[test]
     fn test_protocol_stats_workflow() {
         let mut stats = ProtocolStats::new();
-        
+
         // Add TCP packets
         stats.add_packet(Protocol::TCP, 1500);
         stats.add_packet(Protocol::TCP, 800);
         stats.add_packet(Protocol::TCP, 1200);
-        
+
         // Add UDP packets
         stats.add_packet(Protocol::UDP, 512);
         stats.add_packet(Protocol::UDP, 768);
-        
+
         // Add HTTP packet
         stats.add_packet(Protocol::HTTP, 2048);
-        
+
         // Verify counts
         assert_eq!(stats.get_count(Protocol::TCP), 3);
         assert_eq!(stats.get_count(Protocol::UDP), 2);
         assert_eq!(stats.get_count(Protocol::HTTP), 1);
         assert_eq!(stats.get_count(Protocol::SSH), 0);
-        
+
         // Verify total bytes
         assert_eq!(stats.get_total_bytes(Protocol::TCP), 3500);
         assert_eq!(stats.get_total_bytes(Protocol::UDP), 1280);
         assert_eq!(stats.get_total_bytes(Protocol::HTTP), 2048);
-        
+
         // Verify percentages
         assert_eq!(stats.get_percentage(Protocol::TCP), 50.0);
         assert_eq!(stats.get_percentage(Protocol::UDP), 33.333336); // Floating point precision
@@ -407,7 +425,7 @@ mod protocol_statistics_integration {
     #[test]
     fn test_empty_stats() {
         let stats = ProtocolStats::new();
-        
+
         assert_eq!(stats.get_count(Protocol::TCP), 0);
         assert_eq!(stats.get_total_bytes(Protocol::TCP), 0);
         assert_eq!(stats.get_percentage(Protocol::TCP), 0.0);
@@ -446,9 +464,9 @@ mod mock_pcap_tests {
         let mock_packets = vec![
             vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06], // TCP
             vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11], // UDP
-            b"GET / HTTP/1.1\r\n".to_vec(), // HTTP
-            vec![0x16, 0x03, 0x01, 0x00, 0x00], // TLS
-            b"SSH-2.0-OpenSSH\r\n".to_vec(), // SSH
+            b"GET / HTTP/1.1\r\n".to_vec(),                                   // HTTP
+            vec![0x16, 0x03, 0x01, 0x00, 0x00],                               // TLS
+            b"SSH-2.0-OpenSSH\r\n".to_vec(),                                  // SSH
         ];
 
         let mut reader = MockPcapReader::new(mock_packets);
@@ -465,8 +483,8 @@ mod mock_pcap_tests {
                     data: raw_data.clone(),
                     length: raw_data.len(),
                     timestamp: 0,
-            src_ip: "192.168.1.1".to_string(),
-            dst_ip: "192.168.1.2".to_string(),
+                    src_ip: "192.168.1.1".to_string(),
+                    dst_ip: "192.168.1.2".to_string(),
                 };
                 captured_packets.push(packet);
             }
@@ -476,10 +494,7 @@ mod mock_pcap_tests {
         assert_eq!(captured_packets.len(), 5);
 
         // Classify protocols
-        let protocols: Vec<Protocol> = captured_packets
-            .iter()
-            .map(|p| classify_protocol(p))
-            .collect();
+        let protocols: Vec<Protocol> = captured_packets.iter().map(classify_protocol).collect();
 
         assert_eq!(protocols[0], Protocol::TCP);
         assert_eq!(protocols[1], Protocol::UDP);
@@ -493,7 +508,9 @@ mod mock_pcap_tests {
         // Create mock SYN flood packets - need 1000+ packets per second for DDoS detection
         let mut syn_flood_packets = Vec::new();
         for _ in 0..1200 {
-            syn_flood_packets.push(vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06]);
+            syn_flood_packets.push(vec![
+                0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06,
+            ]);
         }
 
         let mut reader = MockPcapReader::new(syn_flood_packets);
@@ -525,7 +542,7 @@ mod e2e_workflow_tests {
         // Simulate packet capture to UI workflow
         let detector = Arc::new(Mutex::new(ThreatDetector::new()));
         let stats = Arc::new(Mutex::new(ProtocolStats::new()));
-        
+
         // Simulate incoming packets
         let test_packets = vec![
             // Normal TCP traffic
@@ -533,24 +550,24 @@ mod e2e_workflow_tests {
                 data: vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06],
                 length: 60,
                 timestamp: 1000,
-            src_ip: "192.168.1.1".to_string(),
-            dst_ip: "192.168.1.2".to_string(),
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             },
             // HTTP request
             Packet {
                 data: b"GET /index.html HTTP/1.1\r\n".to_vec(),
                 length: 26,
                 timestamp: 1001,
-            src_ip: "192.168.1.1".to_string(),
-            dst_ip: "192.168.1.2".to_string(),
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             },
             // HTTPS traffic
             Packet {
                 data: vec![0x16, 0x03, 0x01, 0x00, 0xA5],
                 length: 5,
                 timestamp: 1002,
-            src_ip: "192.168.1.1".to_string(),
-            dst_ip: "192.168.1.2".to_string(),
+                src_ip: "192.168.1.1".to_string(),
+                dst_ip: "192.168.1.2".to_string(),
             },
         ];
 
@@ -558,15 +575,16 @@ mod e2e_workflow_tests {
         for packet in test_packets {
             // Classify protocol
             let protocol = classify_protocol(&packet);
-            
+
             // Update statistics
             stats.lock().await.add_packet(protocol, packet.length);
-            
+
             // Analyze for threats
             detector.lock().await.analyze_packet(&packet);
-            
+
             // In real implementation, this would update the UI
-            println!("Processed {} packet of {} bytes", 
+            println!(
+                "Processed {} packet of {} bytes",
                 match protocol {
                     Protocol::TCP => "TCP",
                     Protocol::HTTP => "HTTP",
@@ -582,7 +600,7 @@ mod e2e_workflow_tests {
         assert_eq!(final_stats.get_count(Protocol::TCP), 1);
         assert_eq!(final_stats.get_count(Protocol::HTTP), 1);
         assert_eq!(final_stats.get_count(Protocol::HTTPS), 1);
-        
+
         // Verify no threats detected (normal traffic)
         assert!(!detector.lock().await.is_ddos_active());
     }
@@ -591,13 +609,13 @@ mod e2e_workflow_tests {
     async fn test_threat_response_workflow() {
         let mut detector = ThreatDetector::new();
         let scanner_ip: IpAddr = "10.0.0.1".parse().unwrap();
-        
+
         // Stage 1: Detect port scan
         for port in 1000..1100 {
             detector.add_connection(scanner_ip, port);
         }
         assert!(detector.is_port_scan(scanner_ip));
-        
+
         // Stage 2: Escalate to DDoS detection - need 1000+ packets per second
         for i in 0..1200 {
             let packet = Packet {
@@ -610,12 +628,12 @@ mod e2e_workflow_tests {
             detector.analyze_packet(&packet);
         }
         assert!(detector.is_ddos_active());
-        
+
         // Stage 3: Check threat level
         detector.add_threat_indicator(ThreatIndicator::PortScan);
         detector.add_threat_indicator(ThreatIndicator::HighTrafficRate);
         assert_eq!(detector.get_threat_level(), ThreatLevel::High);
-        
+
         // In real implementation, this would trigger:
         // - Alert notifications
         // - Matrix rain visual changes
