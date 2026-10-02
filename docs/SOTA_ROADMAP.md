@@ -62,7 +62,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       reported instead of silently ending the thread. Fixed the double `event::read()` that
       swallowed an event. 117 -> 128 tests. Smoke-tested in a pty: `--demo` renders, and live
       capture as root in the dev container showed real HTTPS packets with real addresses.
-- [x] **4. CLI and safe terminal handling** (`HASH`). `clap` CLI: `-i/--interface`,
+- [x] **4. CLI and safe terminal handling** (`fbba6a1`). `clap` CLI: `-i/--interface`,
       `-l/--list-interfaces`, `-f/--filter <bpf>`, `-r/--read <file.pcap>` with `--speed`,
       `--demo`, `--no-splash`; unknown or conflicting flags now exit 2 (a typo such as `--dmeo`
       used to start a live capture). The source is opened and the filter compiled *before* the
