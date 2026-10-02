@@ -165,9 +165,18 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       (overflow checks on) and 3 M in release. `fuzz/` holds `cargo-fuzz` targets (decode,
       inspect, pcap_file) for coverage-guided runs; they are **not run** - no nightly toolchain
       was installable here. 222 -> 226 tests.
-- [ ] **14. CI and supply chain.** GitHub Actions: fmt, clippy `-D warnings`, tests on Linux and
-      macOS, MSRV, `cargo-deny`/`cargo-audit`; one `cargo fmt` commit; dependency upgrades
-      (ratatui, crossterm, pcap); release workflow with checksummed binaries.
+- [x] **14. CI and supply chain** (`HASH`). Clippy is clean under `-D warnings` (28 -> 0) and the
+      tree is `cargo fmt` clean (one formatting-only commit, listed in `.git-blame-ignore-revs`).
+      `.github/workflows/ci.yml`: fmt, clippy, tests on Linux and macOS, bench build, the root-only
+      live-capture test under sudo, an MSRV check (1.82, now declared in `Cargo.toml`), a
+      1M-iteration fuzz pass and `cargo-deny` (`deny.toml`). `release.yml` builds checksummed
+      Linux and macOS binaries into a draft release on a version tag; it does not publish to
+      crates.io. Dependencies: tokio/thiserror/mockall removed from the runtime tree (79 crates),
+      ratatui 0.25 -> 0.29, crossterm 0.27 -> 0.28. 226 -> 225 tests (one vacuous test removed).
+      **Not verified:** neither workflow has run - they only run once on GitHub; the MSRV of 1.82
+      is from reading which std APIs are used, not from building with 1.82; `cargo-deny` was not
+      run locally. Not done: pcap 1.x -> 2.x. The old semantic-release config (`.releaserc.yml`,
+      `package.json`) is left in place and now overlaps with `release.yml`.
 - [ ] **15. Truth pass and release notes.** README features checked against the code (rainbow
       mode, 3D depth, particle effects, memory metric), CHANGELOG, architecture note, PR rewritten
       as a release summary with what is and is not verified.
