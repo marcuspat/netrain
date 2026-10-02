@@ -183,7 +183,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       Not verified: `release.yml` (it only runs on a tag). Not done: pcap 1.x -> 2.x. The old
       semantic-release config (`.releaserc.yml`, `package.json`) is left in place and now
       overlaps with `release.yml`.
-- [x] **15. Truth pass and release notes** (`HASH`). README checked against the code: removed
+- [x] **15. Truth pass and release notes** (`f8a50ca`). README checked against the code: removed
       rainbow mode, 3D depth, particle effects and "zero-allocation using unsafe" (that widget is
       not the one the binary runs, and the library now forbids `unsafe`); documented the real
       features, every mode and key, the limits (no stream reassembly, fixed thresholds, Windows
