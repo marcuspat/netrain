@@ -11,7 +11,9 @@ use std::process::Command;
 use netrain::decode::TcpFlags;
 use netrain::pcapfile::{PcapReader, PcapWriter};
 use netrain::replay::analyze_pcap;
-use netrain::synth::{dns_query, eth_tcp, eth_udp, ethernet, ipv4, ipv6, tcp, udp, with_vlan};
+use netrain::synth::{
+    client_hello, dns_query, dns_response, eth_tcp, eth_udp, ethernet, ipv4, ipv6, tcp, udp, with_vlan,
+};
 use netrain::{Protocol, ThreatLevel};
 
 const T0: i64 = 1_700_000_000_000_000;
@@ -24,7 +26,7 @@ const PSH_ACK: u8 = TcpFlags::PSH | TcpFlags::ACK;
 
 /// An ordinary browsing session: DNS, a TLS connection, plain HTTP, SSH.
 fn normal_traffic() -> Vec<u8> {
-    let tls_hello = [0x16, 0x03, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00];
+    let tls_hello = client_hello("example.com");
     let mut w = PcapWriter::new(1);
     let mut t = T0;
     let mut add = |frame: Vec<u8>| {
@@ -32,7 +34,7 @@ fn normal_traffic() -> Vec<u8> {
         t += 40_000;
     };
     add(eth_udp(CLIENT, RESOLVER, 53001, 53, &dns_query("example.com")));
-    add(eth_udp(RESOLVER, CLIENT, 53, 53001, &dns_query("example.com")));
+    add(eth_udp(RESOLVER, CLIENT, 53, 53001, &dns_response("example.com", &[SERVER.into()])));
     add(eth_tcp(CLIENT, SERVER, 50001, 443, SYN, b""));
     add(eth_tcp(SERVER, CLIENT, 443, 50001, SYN | ACK, b""));
     add(eth_tcp(CLIENT, SERVER, 50001, 443, ACK, b""));
@@ -152,6 +154,7 @@ fn normal_traffic_is_classified_and_raises_nothing() {
     assert_eq!(s.count(Protocol::SSH), 2);
     assert_eq!(s.count(Protocol::TCP) + s.count(Protocol::UDP) + s.count(Protocol::Unknown), 0);
     assert_eq!(s.flows, 4, "DNS, TLS, HTTP and SSH conversations");
+    assert_eq!(s.hostnames.iter().collect::<Vec<_>>(), ["example.com"], "from DNS, SNI and Host");
     assert_eq!(s.top_talkers[0].0.to_string(), "192.168.1.10", "the client is in every flow");
     assert!(s.alerts.is_empty(), "false positive on ordinary traffic: {:?}", s.alerts);
     assert_eq!(s.peak(), ThreatLevel::Low);
@@ -188,6 +191,7 @@ fn mixed_protocols_cover_ipv6_vlan_and_skip_non_ip() {
     assert_eq!(s.count(Protocol::HTTPS), 2, "IPv4 and IPv6");
     assert_eq!(s.count(Protocol::SSH), 1);
     assert_eq!(s.count(Protocol::Unknown), 1, "ICMP");
+    assert_eq!(s.hostnames.iter().collect::<Vec<_>>(), ["ipv6.example", "rust-lang.org"]);
     assert!(s.alerts.is_empty());
 }
 

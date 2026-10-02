@@ -33,6 +33,8 @@ pub struct ReplaySummary {
     pub peak_level: Option<ThreatLevel>,
     /// Time between the first and last packet.
     pub duration: Duration,
+    /// Hostnames seen in DNS questions, TLS SNI and HTTP Host headers.
+    pub hostnames: BTreeSet<String>,
     /// Distinct flows (bidirectional 5-tuples) seen.
     pub flows: u64,
     /// The busiest hosts by bytes sent plus received: (address, bytes, packets).
@@ -60,6 +62,12 @@ impl fmt::Display for ReplaySummary {
         writeln!(f, "protocols:")?;
         for (label, count) in &self.protocols {
             writeln!(f, "  {label:<6}{count}")?;
+        }
+        if !self.hostnames.is_empty() {
+            writeln!(f, "hostnames:")?;
+            for name in &self.hostnames {
+                writeln!(f, "  {name}")?;
+            }
         }
         if !self.top_talkers.is_empty() {
             writeln!(f, "top talkers:")?;
@@ -134,6 +142,9 @@ impl ReplayAnalyzer {
 
         self.engine.observe(&decoded, now);
         self.flows.observe(&event, now);
+        if let Some(insight) = crate::inspect::insight(&decoded) {
+            self.summary.hostnames.insert(insight.name);
+        }
         for alert in self.engine.active_alerts(now) {
             self.summary.alerts.insert(alert_key(alert.kind, alert.source, alert.target));
         }

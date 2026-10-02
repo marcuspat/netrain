@@ -586,7 +586,7 @@ fn run(cli: &Cli) -> Result<()> {
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                     ));
                     for (i, (ip, host)) in talkers.iter().enumerate() {
-                        let entry = format!("#{} {} {} ({} pkts)", i + 1, ip, human_bytes(host.bytes), host.packets);
+                        let entry = format!("#{} {} {} ({} pkts)", i + 1, app.names.display(ip), human_bytes(host.bytes), host.packets);
                         items.push(ListItem::new(entry).style(Style::default().fg(Color::Cyan)));
                     }
                     items.push(ListItem::new(format!("--- TOP FLOWS ({} active) ---", app.flows.len())).style(

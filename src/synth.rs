@@ -84,3 +84,60 @@ pub fn with_vlan(frame: &[u8], vlan: u16) -> Vec<u8> {
     f.extend_from_slice(&frame[12..]);
     f
 }
+
+/// A DNS response for `name` carrying one A/AAAA record per address. The
+/// answer names use a compression pointer back to the question, as real
+/// servers do.
+pub fn dns_response(name: &str, addrs: &[std::net::IpAddr]) -> Vec<u8> {
+    let mut m = dns_query(name);
+    m[2] = 0x81; // response, recursion desired
+    m[3] = 0x80; // recursion available
+    m[6..8].copy_from_slice(&(addrs.len() as u16).to_be_bytes());
+    for addr in addrs {
+        m.extend_from_slice(&[0xc0, 0x0c]); // pointer to the question name
+        match addr {
+            std::net::IpAddr::V4(v4) => {
+                m.extend_from_slice(&[0, 1, 0, 1, 0, 0, 0, 60, 0, 4]);
+                m.extend_from_slice(&v4.octets());
+            }
+            std::net::IpAddr::V6(v6) => {
+                m.extend_from_slice(&[0, 28, 0, 1, 0, 0, 0, 60, 0, 16]);
+                m.extend_from_slice(&v6.octets());
+            }
+        }
+    }
+    m
+}
+
+/// A TLS 1.2-style ClientHello record carrying `server_name` in the
+/// server-name extension, preceded by one unrelated extension.
+pub fn client_hello(server_name: &str) -> Vec<u8> {
+    let name = server_name.as_bytes();
+    let mut sni = Vec::new();
+    sni.extend_from_slice(&((name.len() + 3) as u16).to_be_bytes()); // list length
+    sni.push(0); // host_name
+    sni.extend_from_slice(&(name.len() as u16).to_be_bytes());
+    sni.extend_from_slice(name);
+
+    let mut extensions = vec![0x00, 0x0b, 0x00, 0x02, 0x01, 0x00]; // ec_point_formats
+    extensions.extend_from_slice(&[0x00, 0x00]);
+    extensions.extend_from_slice(&(sni.len() as u16).to_be_bytes());
+    extensions.extend_from_slice(&sni);
+
+    let mut body = vec![0x03, 0x03]; // client version
+    body.extend_from_slice(&[0x5a; 32]); // random
+    body.push(0); // session id length
+    body.extend_from_slice(&[0x00, 0x04, 0x13, 0x01, 0x13, 0x02]); // cipher suites
+    body.extend_from_slice(&[0x01, 0x00]); // compression methods
+    body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+    body.extend_from_slice(&extensions);
+
+    let mut handshake = vec![0x01, 0x00];
+    handshake.extend_from_slice(&(body.len() as u16).to_be_bytes());
+    handshake.extend_from_slice(&body);
+
+    let mut record = vec![0x16, 0x03, 0x01];
+    record.extend_from_slice(&(handshake.len() as u16).to_be_bytes());
+    record.extend_from_slice(&handshake);
+    record
+}

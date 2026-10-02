@@ -91,9 +91,15 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       costs amortised O(1) per packet; idle flows expire after 60s, closed ones after 5s. The log
       panel shows top talkers and top flows; `--summary` reports flow count and top talkers.
       161 -> 169 tests.
-- [ ] **7. Application-layer insight.** Real DNS question parsing (compression-pointer loop
-      safe), TLS ClientHello SNI, HTTP Host; hostnames in the packet log. QUIC long-header
-      detection on UDP 443.
+- [x] **7. Application-layer insight** (`HASH`). `inspect` module: TLS ClientHello SNI, HTTP
+      `Host` header and DNS question names, each validated to hostname characters only so a
+      crafted packet cannot put terminal escape codes on screen. The packet log appends
+      `sni=`/`host=`/`dns=`; flows carry their server name. DNS answers (A/AAAA, with compression
+      pointers, loop-safe) fill a bounded address->name cache, so top talkers read
+      `93.184.216.34 (example.com)` without netrain ever issuing a lookup itself. QUIC long-header
+      packets on UDP 443 are classified as HTTPS (own label in item 8). `--summary` lists
+      hostnames. Property tests on every parser. 169 -> 181 tests. Live smoke test in the dev
+      container extracted a real SNI from real traffic.
 - [ ] **8. Protocol coverage.** ICMP/ICMPv6, ARP, QUIC, NTP, DHCP, mDNS, SSDP as first-class
       protocols; `#[non_exhaustive]` on public enums; port table instead of if-chains.
 - [ ] **9. UI.** Resize handling (and the swallowed-event bug), pause (space), help overlay (`?`),

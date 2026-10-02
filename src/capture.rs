@@ -10,7 +10,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 
-use crate::decode::LinkType;
+use std::net::IpAddr;
+
+use crate::decode::{Decoded, LinkType, Transport};
+use crate::dns;
+use crate::inspect::{self, Insight};
 use crate::pipeline::{observe, PacketEvent};
 
 /// Bytes of each packet kept for the hex dump.
@@ -20,9 +24,13 @@ pub const SAMPLE_LEN: usize = 64;
 pub const DEFAULT_QUEUE: usize = 8192;
 
 /// An owned summary of one packet.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PacketRecord {
     pub event: PacketEvent,
+    /// A hostname the packet revealed (DNS question, TLS SNI, HTTP Host).
+    pub insight: Option<Insight>,
+    /// For DNS responses: the name asked for and the addresses it resolved to.
+    pub resolved: Option<Box<(String, Vec<IpAddr>)>>,
     sample: [u8; SAMPLE_LEN],
     sample_len: u8,
 }
@@ -32,7 +40,18 @@ impl PacketRecord {
         let n = data.len().min(SAMPLE_LEN);
         let mut sample = [0u8; SAMPLE_LEN];
         sample[..n].copy_from_slice(&data[..n]);
-        Self { event, sample, sample_len: n as u8 }
+        Self { event, insight: None, resolved: None, sample, sample_len: n as u8 }
+    }
+
+    /// Build a record from a decoded packet, extracting any hostname and
+    /// DNS answers while the payload is still at hand.
+    pub fn from_decoded(event: PacketEvent, decoded: &Decoded<'_>, data: &[u8]) -> Self {
+        let mut record = Self::new(event, data);
+        record.insight = inspect::insight(decoded);
+        if let Transport::Udp { src_port: 53 | 5353, .. } = decoded.transport {
+            record.resolved = dns::answers(decoded.payload).filter(|(_, a)| !a.is_empty()).map(Box::new);
+        }
+        record
     }
 
     /// The first bytes of the packet as captured.
@@ -115,7 +134,7 @@ impl CaptureSink {
     pub fn submit(&self, link: LinkType, data: &[u8], wire_len: usize) -> bool {
         self.counters.received.fetch_add(1, Ordering::Relaxed);
         match observe(link, data, wire_len) {
-            Ok((event, _)) => self.push(PacketRecord::new(event, data)),
+            Ok((event, decoded)) => self.push(PacketRecord::from_decoded(event, &decoded, data)),
             Err(_) => {
                 self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
                 true
@@ -145,7 +164,9 @@ impl CaptureSink {
     pub fn submit_blocking(&self, link: LinkType, data: &[u8], wire_len: usize) -> bool {
         self.counters.received.fetch_add(1, Ordering::Relaxed);
         match observe(link, data, wire_len) {
-            Ok((event, _)) => self.tx.send(CaptureMsg::Packet(PacketRecord::new(event, data))).is_ok(),
+            Ok((event, decoded)) => {
+                self.tx.send(CaptureMsg::Packet(PacketRecord::from_decoded(event, &decoded, data))).is_ok()
+            }
             Err(_) => {
                 self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
                 true

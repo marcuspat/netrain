@@ -71,6 +71,8 @@ pub struct Flow {
     pub responder: Endpoint,
     /// Most specific application protocol seen on the flow.
     pub protocol: Protocol,
+    /// Server name learned from TLS SNI or the HTTP Host header.
+    pub name: Option<String>,
     pub state: FlowState,
     /// Initiator -> responder.
     pub packets_out: u64,
@@ -93,14 +95,18 @@ impl Flow {
 
     /// e.g. `HTTPS 10.0.0.2:51000 -> 1.1.1.1:443 open 1.2 KB`.
     pub fn summary(&self) -> String {
-        format!(
+        let base = format!(
             "{} {} -> {} {} {}",
             self.protocol.label(),
             fmt_endpoint(self.initiator),
             fmt_endpoint(self.responder),
             self.state.label(),
             human_bytes(self.bytes())
-        )
+        );
+        match &self.name {
+            Some(name) => format!("{base} {name}"),
+            None => base,
+        }
     }
 }
 
@@ -240,6 +246,7 @@ impl FlowTable {
                 initiator: src,
                 responder: dst,
                 protocol: event.protocol,
+                name: None,
                 state: FlowState::Active,
                 packets_out: 0,
                 bytes_out: 0,
@@ -281,6 +288,15 @@ impl FlowTable {
             // A SYN-ACK alone means the server answered; the handshake is
             // complete once the initiator ACKs, but for display "open" on
             // SYN-ACK is the useful signal.
+        }
+    }
+
+    /// Record the server name seen on the flow `event` belongs to.
+    pub fn set_name(&mut self, event: &PacketEvent, name: &str) {
+        let src = (event.src, event.src_port.unwrap_or(0));
+        let dst = (event.dst, event.dst_port.unwrap_or(0));
+        if let Some(flow) = self.flows.get_mut(&FlowKey::new(event.ip_proto, src, dst)) {
+            flow.name = Some(name.to_string());
         }
     }
 

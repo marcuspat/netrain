@@ -55,6 +55,9 @@ pub fn classify(decoded: &Decoded<'_>) -> Protocol {
         Transport::Udp { src_port, dst_port } => {
             if src_port == 53 || dst_port == 53 {
                 Protocol::DNS
+            } else if (src_port == 443 || dst_port == 443) && crate::inspect::is_quic_initial(decoded.payload) {
+                // QUIC connection setup: HTTP/3, i.e. encrypted web traffic.
+                Protocol::HTTPS
             } else {
                 Protocol::UDP
             }
@@ -138,6 +141,12 @@ mod tests {
         assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::UDP);
         let pkt = ethernet(0x86dd, &ipv6(6, [1; 16], [2; 16], &tcp(50000, 443, TcpFlags::SYN, b"")));
         assert_eq!(classify(&decode(LinkType::Ethernet, &pkt).unwrap()), Protocol::HTTPS);
+        // QUIC (HTTP/3) connection setup on UDP 443 counts as HTTPS; other
+        // UDP on 443 does not.
+        let pkt = ipv4(17, A, B, &udp(40000, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]));
+        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::HTTPS);
+        let pkt = ipv4(17, A, B, &udp(40000, 443, &[0x40, 1, 2, 3, 4, 5, 6, 7, 8]));
+        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::UDP);
         let pkt = ipv4(1, A, B, &[8, 0, 0, 0]);
         assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::Unknown);
     }

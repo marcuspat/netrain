@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use crate::capture::{CaptureMsg, PacketRecord};
 use crate::flows::FlowTable;
+use crate::inspect::{NameCache, NameSource};
 use crate::pipeline::PacketEvent;
 use crate::protocol_activity::ProtocolActivityTracker;
 use crate::threat_detection::ThreatDetector;
@@ -22,6 +23,8 @@ pub struct AppState {
     pub activity: ProtocolActivityTracker,
     pub detector: ThreatDetector,
     pub flows: FlowTable,
+    /// Address -> name, learned from DNS answers on the wire.
+    pub names: NameCache,
     /// Newest first.
     pub packet_log: VecDeque<String>,
     /// Newest first.
@@ -48,6 +51,7 @@ impl AppState {
             activity: ProtocolActivityTracker::new(),
             detector: ThreatDetector::new(),
             flows: FlowTable::default(),
+            names: NameCache::default(),
             packet_log: VecDeque::with_capacity(LOG_LINES + 1),
             raw_packets: VecDeque::with_capacity(RAW_SAMPLES + 1),
             capture_error: None,
@@ -68,7 +72,22 @@ impl AppState {
         self.detector.analyze_event_at(event, now);
         self.flows.observe(event, now);
 
-        self.packet_log.push_front(event.log_line(timestamp));
+        if let Some(resolved) = &record.resolved {
+            for ip in &resolved.1 {
+                self.names.insert(*ip, &resolved.0);
+            }
+        }
+        let mut line = event.log_line(timestamp);
+        if let Some(insight) = &record.insight {
+            // A connection's server name belongs on its flow; a DNS question
+            // is about some other host, so it only annotates the log line.
+            if insight.source != NameSource::Dns {
+                self.flows.set_name(event, &insight.name);
+            }
+            line.push(' ');
+            line.push_str(&insight.label());
+        }
+        self.packet_log.push_front(line);
         self.packet_log.truncate(LOG_LINES);
         self.raw_packets.push_front(record.sample().to_vec());
         self.raw_packets.truncate(RAW_SAMPLES);
@@ -150,6 +169,31 @@ mod tests {
         assert_eq!(state.packet_rate, 2);
         state.tick_second();
         assert_eq!(state.packet_rate, 0);
+    }
+
+    #[test]
+    fn hostnames_reach_the_log_the_flow_and_the_name_cache() {
+        use crate::synth::{client_hello, dns_query, dns_response, eth_tcp, eth_udp};
+        let (client, resolver, server) = ([10, 0, 0, 2], [9, 9, 9, 9], [93, 184, 216, 34]);
+        let (sink, rx, _) = channel(64);
+        let q = eth_udp(client, resolver, 40000, 53, &dns_query("example.com"));
+        let r = eth_udp(resolver, client, 53, 40000, &dns_response("example.com", &[server.into()]));
+        let hello = eth_tcp(client, server, 50000, 443, TcpFlags::ACK, &client_hello("example.com"));
+        for f in [&q, &r, &hello] {
+            sink.submit(LinkType::Ethernet, f, f.len());
+        }
+        let mut state = AppState::new();
+        state.drain(&rx, 10, "t", Instant::now(), |_| {});
+
+        assert!(state.packet_log[2].ends_with("dns=example.com"), "{}", state.packet_log[2]);
+        assert!(state.packet_log[0].ends_with("sni=example.com"), "{}", state.packet_log[0]);
+        assert_eq!(state.names.display(&server.into()), "93.184.216.34 (example.com)");
+        let tls = state.flows.top_flows(5).into_iter().find(|f| f.protocol == Protocol::HTTPS).unwrap();
+        assert_eq!(tls.name.as_deref(), Some("example.com"));
+        assert!(tls.summary().ends_with("example.com"));
+        // The DNS flow is not labelled with the name it merely asked about.
+        let dns = state.flows.top_flows(5).into_iter().find(|f| f.protocol == Protocol::DNS).unwrap();
+        assert_eq!(dns.name, None);
     }
 
     #[test]
