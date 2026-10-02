@@ -144,7 +144,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       drop and that packets still arrive afterwards (it ran here as root). Adds `libc` as a
       direct dependency. Not verified: the `sudo` path (SUDO_UID) and macOS, neither available
       in the dev container; the target-selection logic for them is unit-tested.
-- [x] **12. Performance, measured** (`HASH`). `benches/pipeline.rs` measures the real path
+- [x] **12. Performance, measured** (`402e211`). `benches/pipeline.rs` measures the real path
       (decode, classify, hostname extraction, channel, state, threat engine, flows) on a traffic
       mix and under attack. The benchmarks found the threat engine collapsing under exactly what
       it detects: 28 K packets/s in a spoofed SYN flood and 49 K in a port scan. Fixed with
