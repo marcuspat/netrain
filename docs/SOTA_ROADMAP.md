@@ -183,6 +183,22 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       Not verified: `release.yml` (it only runs on a tag). Not done: pcap 1.x -> 2.x. The old
       semantic-release config (`.releaserc.yml`, `package.json`) is left in place and now
       overlaps with `release.yml`.
-- [ ] **15. Truth pass and release notes.** README features checked against the code (rainbow
-      mode, 3D depth, particle effects, memory metric), CHANGELOG, architecture note, PR rewritten
-      as a release summary with what is and is not verified.
+- [x] **15. Truth pass and release notes** (`HASH`). README checked against the code: removed
+      rainbow mode, 3D depth, particle effects and "zero-allocation using unsafe" (that widget is
+      not the one the binary runs, and the library now forbids `unsafe`); documented the real
+      features, every mode and key, the limits (no stream reassembly, fixed thresholds, Windows
+      untested) and that `demo.gif` predates the current layout. `CHANGELOG.md` has the full
+      Unreleased entry including breaking library changes. `docs/ARCHITECTURE.md` describes the
+      data flow, modules, design rules and what is legacy. PR #38 rewritten as a release summary.
+
+## Left for a human decision
+
+- Version bump and release: the library API changed in breaking ways, so 0.3.0. Nothing was
+  tagged or published.
+- `.releaserc.yml` / `package.json` (semantic-release) overlap with `.github/workflows/release.yml`.
+- `demo.gif` should be re-recorded.
+- pcap 1.x -> 2.x.
+- Thresholds are compile-time defaults; a config file or flags would make them tunable.
+- `fuzz/` cargo-fuzz targets have never been run (needs nightly).
+- Not verified anywhere: live capture on macOS, the `sudo` privilege-drop path (CI's root test
+  drops to `nobody`), Windows, and behaviour on a busy real network.

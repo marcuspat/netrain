@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This is a large change set and includes breaking changes to the library API, so the next
+release should be a minor bump (0.3.0).
+
+### Added
+- Layered packet decoder: Ethernet with VLAN tags, raw IP, loopback, Linux cooked captures;
+  IPv4 and IPv6 with extension headers; TCP, UDP, ICMP.
+- Threat engine: port scans, host sweeps, NULL/FIN/Xmas stealth scans, SYN floods and traffic
+  spikes, with alerts that carry source, target and evidence and expire when the behaviour stops.
+- Flow table with per-direction counters and TCP state; top talkers ranked by bytes.
+- Hostnames from DNS queries, TLS SNI and HTTP `Host`; a passive address-to-name cache.
+- Protocols: ICMP, QUIC, NTP, DHCP, mDNS, SSDP.
+- Command line: `--interface`, `--list-interfaces`, `--filter`, `--read`, `--speed`,
+  `--summary`, `--json`, `--headless`, `--alerts-only`, `--count`, `--promiscuous`,
+  `--snaplen`, `--keep-privileges`, `--no-splash`.
+- pcap replay, a deterministic capture summary, and NDJSON/text output (`docs/JSON_OUTPUT.md`).
+- UI: pause, protocol filter, help overlay, resize handling, alert details, drop counter,
+  flows and top talkers, real memory figure.
+- Root is dropped once the capture is open (`docs/PRIVILEGES.md`).
+- CI (lint, tests on Linux and macOS, MSRV, fuzz pass, cargo-deny) and a release workflow.
+- Benchmarks of the real packet path (`docs/PERFORMANCE.md`); a mutation fuzzer in the test suite.
+
+### Changed
+- **Promiscuous mode is off by default**; pass `--promiscuous` to enable it.
+- Default snap length is 1600 bytes (was 5000); default filter includes IPv6 and VLAN traffic.
+- The default interface is the first live non-loopback one on any OS (was `en0`).
+- Unknown or conflicting command-line flags are an error (they used to be ignored).
+- Mouse capture is no longer enabled, so terminal text selection works.
+- The render loop is paced at about 60 FPS instead of spinning.
+- Minimum Rust version is 1.88. ratatui 0.29, crossterm 0.28.
+- `tokio` is no longer a runtime dependency; `thiserror` and `mockall` are removed.
+
+### Fixed
+- Threat detection never fired on live traffic: TCP flags were read at the wrong offset for
+  Ethernet frames, SYN-ACK replies were counted as attacks, nothing fed the port-scan tracker,
+  and the threat level had no input.
+- VLAN-tagged frames were silently dropped by the default capture filter.
+- Packet length was reported as 60 for every packet by one parser; the DNS query name was a
+  constant; two classification functions panicked on some inputs.
+- The terminal is restored on every exit path, including panics and errors.
+- A keypress could be swallowed by a second `event::read()`.
+- Memory grew without bound in the per-source connection table; all tables are now capped.
+- The memory figure in the UI was a constant.
+- Corrupt capture files could panic on absurd timestamps or lengths.
+- Dependencies with security advisories updated: `anyhow`, `rand`, `crossbeam-epoch`.
+- Test fixtures in `tests/fixtures/` were not valid pcap files; they are now generated.
+
+### Breaking (library)
+- `extract_dns_query` returns `Option<String>` (was `Option<&str>`).
+- `validate_packet`, `classify_protocol`, `classify_protocol_optimized` and
+  `calculate_rain_density` return a value where they used to panic.
+- `ProtocolSnapshot`'s per-protocol fields are replaced by `get(protocol)`.
+- `Protocol` and `AlertKind` are `#[non_exhaustive]`; `Protocol` has new variants.
+- `ThreatDetector::get_threat_level` reflects live alerts as well as manual indicators.
+
 ## [0.2.7] - 2025-01-01
 ### Fixed
 - Fixed packet dump display with broken Unicode characters

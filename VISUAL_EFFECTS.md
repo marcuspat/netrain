@@ -1,5 +1,9 @@
 # NetRain Visual Effects Enhancement Report
 
+> **Status:** this describes `matrix_rain::MatrixRain`, which is exported by the library and
+> tested but is **not** the widget the `netrain` binary runs. The binary uses the simpler
+> `simple_matrix::SimpleMatrixRain`. See `docs/ARCHITECTURE.md`.
+
 ## Overview
 Enhanced the Matrix rain visual effects in NetRain to create a stunning, viral-worthy terminal UI with advanced animations and visual features.
 
