@@ -4,8 +4,10 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-/// Default kernel filter: IPv4 and IPv6, nothing else.
-pub const DEFAULT_FILTER: &str = "ip or ip6";
+/// Default kernel filter: IPv4 and IPv6, including inside an 802.1Q VLAN
+/// tag. A bare `ip or ip6` silently drops every VLAN-tagged frame, because
+/// BPF matches the EtherType at a fixed offset.
+pub const DEFAULT_FILTER: &str = "ip or ip6 or (vlan and (ip or ip6))";
 
 #[derive(Parser, Debug, Clone, PartialEq)]
 #[command(
@@ -34,6 +36,10 @@ pub struct Cli {
     /// Replay speed multiplier for --read; 0 replays as fast as possible
     #[arg(long, value_name = "FACTOR", default_value_t = 1.0, requires = "read", value_parser = parse_speed, allow_negative_numbers = true)]
     pub speed: f64,
+
+    /// With --read: print a summary (protocols, alerts) and exit, no UI
+    #[arg(long, requires = "read")]
+    pub summary: bool,
 
     /// Run with synthetic traffic (no root required)
     #[arg(long)]
@@ -115,6 +121,11 @@ mod tests {
         assert_eq!(cli.mode(), Mode::Replay("trace.pcap".into()));
         assert_eq!(cli.speed, 0.0);
         assert!(parse(&["--list-interfaces"]).unwrap().list_interfaces);
+        assert!(parse(&["-r", "t.pcap", "--summary"]).unwrap().summary);
+        assert_eq!(
+            parse(&["--summary"]).unwrap_err().kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
     }
 
     #[test]

@@ -427,60 +427,7 @@ fn decode_transport(proto: u8, seg: &[u8]) -> Result<(Transport, &[u8]), DecodeE
 }
 
 #[cfg(test)]
-pub(crate) mod testutil {
-    //! Builders for well-formed packets, shared by unit tests across modules.
-
-    pub fn ipv4(proto: u8, src: [u8; 4], dst: [u8; 4], l4: &[u8]) -> Vec<u8> {
-        let total = (20 + l4.len()) as u16;
-        let mut p = vec![0x45, 0x00];
-        p.extend_from_slice(&total.to_be_bytes());
-        p.extend_from_slice(&[0x00, 0x00, 0x40, 0x00, 64, proto, 0x00, 0x00]);
-        p.extend_from_slice(&src);
-        p.extend_from_slice(&dst);
-        p.extend_from_slice(l4);
-        p
-    }
-
-    pub fn tcp(src_port: u16, dst_port: u16, flags: u8, payload: &[u8]) -> Vec<u8> {
-        let mut s = Vec::new();
-        s.extend_from_slice(&src_port.to_be_bytes());
-        s.extend_from_slice(&dst_port.to_be_bytes());
-        s.extend_from_slice(&[0; 8]); // seq + ack
-        s.push(0x50); // data offset 5
-        s.push(flags);
-        s.extend_from_slice(&[0xff, 0xff, 0, 0, 0, 0]); // window, csum, urg
-        s.extend_from_slice(payload);
-        s
-    }
-
-    pub fn udp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
-        let mut s = Vec::new();
-        s.extend_from_slice(&src_port.to_be_bytes());
-        s.extend_from_slice(&dst_port.to_be_bytes());
-        s.extend_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
-        s.extend_from_slice(&[0, 0]);
-        s.extend_from_slice(payload);
-        s
-    }
-
-    pub fn ethernet(ethertype: u16, inner: &[u8]) -> Vec<u8> {
-        let mut f = vec![0x02, 0, 0, 0, 0, 1, 0x02, 0, 0, 0, 0, 2];
-        f.extend_from_slice(&ethertype.to_be_bytes());
-        f.extend_from_slice(inner);
-        f
-    }
-
-    pub fn ipv6(next: u8, src: [u8; 16], dst: [u8; 16], body: &[u8]) -> Vec<u8> {
-        let mut p = vec![0x60, 0, 0, 0];
-        p.extend_from_slice(&(body.len() as u16).to_be_bytes());
-        p.push(next);
-        p.push(64);
-        p.extend_from_slice(&src);
-        p.extend_from_slice(&dst);
-        p.extend_from_slice(body);
-        p
-    }
-}
+pub(crate) use crate::synth as testutil;
 
 #[cfg(test)]
 mod tests {

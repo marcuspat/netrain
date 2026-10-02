@@ -54,15 +54,7 @@ pub fn question_name(msg: &[u8]) -> Option<String> {
 }
 
 #[cfg(test)]
-pub(crate) fn query(name: &str) -> Vec<u8> {
-    let mut m = vec![0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
-    for label in name.split('.') {
-        m.push(label.len() as u8);
-        m.extend_from_slice(label.as_bytes());
-    }
-    m.extend_from_slice(&[0, 0, 1, 0, 1]);
-    m
-}
+pub(crate) use crate::synth::dns_query as query;
 
 #[cfg(test)]
 mod tests {

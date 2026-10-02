@@ -7,6 +7,7 @@ use netrain::{
     capture::{self, CaptureSink, DeviceInfo, ReplayPacer},
     decode::{LinkType, Transport},
     pipeline::PacketEvent,
+    replay::ReplayAnalyzer,
     simple_matrix::SimpleMatrixRain,
     state::AppState,
     Protocol, ThreatLevel,
@@ -286,6 +287,27 @@ fn run_replay(mut cap: Capture<Offline>, link: LinkType, name: String, speed: f6
     }
 }
 
+/// `--read FILE --summary`: analyse the capture on its own timestamps and
+/// print the result. Deterministic; no terminal needed.
+fn print_summary(mut cap: Capture<Offline>, link: LinkType, name: &str) -> Result<()> {
+    let mut analyzer = ReplayAnalyzer::default();
+    loop {
+        match cap.next_packet() {
+            Ok(packet) => {
+                let ts = packet.header.ts;
+                // timeval field widths differ between platforms.
+                #[allow(clippy::unnecessary_cast)]
+                let micros = (ts.tv_sec as i64).saturating_mul(1_000_000).saturating_add(ts.tv_usec as i64);
+                analyzer.feed(link, micros, packet.data, packet.header.len as usize);
+            }
+            Err(pcap::Error::NoMorePackets) => break,
+            Err(e) => return Err(anyhow!("Reading {name} failed: {e}")),
+        }
+    }
+    print!("{}", analyzer.finish());
+    Ok(())
+}
+
 fn main() -> ExitCode {
     // clap handles --help/--version and rejects unknown or conflicting flags.
     let cli = Cli::parse();
@@ -305,6 +327,12 @@ fn run(cli: &Cli) -> Result<()> {
         return print_interfaces();
     }
     let source = open_source(cli)?;
+    if cli.summary {
+        let Source::Replay { cap, link, name, .. } = source else {
+            unreachable!("clap requires --read with --summary");
+        };
+        return print_summary(cap, link, &name);
+    }
     let demo_mode = matches!(source, Source::Demo);
     let source_label = match &source {
         Source::Demo => "demo".to_string(),
