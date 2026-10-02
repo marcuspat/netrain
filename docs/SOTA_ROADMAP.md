@@ -100,7 +100,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       packets on UDP 443 are classified as HTTPS (own label in item 8). `--summary` lists
       hostnames. Property tests on every parser. 169 -> 181 tests. Live smoke test in the dev
       container extracted a real SNI from real traffic.
-- [x] **8. Protocol coverage** (`HASH`). New labels: ICMP (v4 and v6), QUIC, NTP, DHCP (v4 and v6),
+- [x] **8. Protocol coverage** (`453e7d2`). New labels: ICMP (v4 and v6), QUIC, NTP, DHCP (v4 and v6),
       mDNS, SSDP. `Protocol` and `AlertKind` are `#[non_exhaustive]`; `Protocol::ALL`/`index()`
       replace hand-written per-protocol fields, so the activity tracker, the PROTOCOLS panel
       (busiest six seen) and the sparklines (busiest six) are data-driven instead of hard-coded
