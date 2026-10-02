@@ -133,7 +133,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       197 -> 214 tests. Checked live in the dev container: `--json --alerts-only` under SIGINT
       printed the summary with real traffic. Adds `signal-hook` as a direct dependency (it was
       already in the tree via crossterm). `--demo` is not supported with these modes.
-- [x] **11. Least privilege** (`HASH`). Root is dropped right after the capture is opened and the
+- [x] **11. Least privilege** (`331c359`). Root is dropped right after the capture is opened and the
       filter compiled: to the invoking user under `sudo`, otherwise to `nobody`; supplementary
       groups cleared, gid then uid set, and the drop verified irreversible (netrain exits if it
       is not). All packet parsing, the UI and JSON output therefore run unprivileged.
