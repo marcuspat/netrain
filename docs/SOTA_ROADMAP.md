@@ -154,7 +154,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       performance section now quotes them instead of the old "29ns" and "zero-allocation"
       claims. The last `unsafe` (`get_unchecked`) is gone. 220 -> 222 tests. Not done: the legacy
       `Packet` struct still carries `String` addresses; the live path does not use it.
-- [x] **13. Fuzzing and hardening** (`HASH`). `#![forbid(unsafe_code)]` on the library.
+- [x] **13. Fuzzing and hardening** (`67979ce`). `#![forbid(unsafe_code)]` on the library.
       `tests/fuzz_smoke.rs` is a deterministic mutation fuzzer that runs on stable with
       `cargo test`: it mutates valid packets and capture files and drives every parser, the legacy
       API, and the stateful pipeline (channel, UI state, analyser, JSON exporter) with hostile
