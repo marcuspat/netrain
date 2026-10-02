@@ -37,11 +37,18 @@ impl fmt::Display for Privileges {
 /// files and the terminal keep working as they would have without sudo.
 /// A root login or a container has no such user, so `nobody` is used. A
 /// `SUDO_UID` of 0 is not somewhere to drop *to*.
-pub fn drop_target(euid: u32, sudo_uid: Option<&str>, sudo_gid: Option<&str>) -> Option<(u32, u32)> {
+pub fn drop_target(
+    euid: u32,
+    sudo_uid: Option<&str>,
+    sudo_gid: Option<&str>,
+) -> Option<(u32, u32)> {
     if euid != 0 {
         return None;
     }
-    let parse = |v: Option<&str>| v.and_then(|s| s.trim().parse::<u32>().ok()).filter(|id| *id != 0);
+    let parse = |v: Option<&str>| {
+        v.and_then(|s| s.trim().parse::<u32>().ok())
+            .filter(|id| *id != 0)
+    };
     match (parse(sudo_uid), parse(sudo_gid)) {
         (Some(uid), Some(gid)) => Some((uid, gid)),
         (Some(uid), None) => Some((uid, uid)),
@@ -63,7 +70,12 @@ pub fn drop_privileges(keep: bool) -> Result<Privileges, String> {
         return Ok(Privileges::Kept);
     }
 
-    let os_error = |what: &str| format!("cannot drop privileges ({what}): {}", std::io::Error::last_os_error());
+    let os_error = |what: &str| {
+        format!(
+            "cannot drop privileges ({what}): {}",
+            std::io::Error::last_os_error()
+        )
+    };
     // SAFETY: plain libc calls with valid arguments. Order matters:
     // supplementary groups and the gid must go while we are still root,
     // the uid last.
@@ -102,7 +114,10 @@ mod tests {
 
     #[test]
     fn sudo_returns_to_the_invoking_user() {
-        assert_eq!(drop_target(0, Some("1000"), Some("1001")), Some((1000, 1001)));
+        assert_eq!(
+            drop_target(0, Some("1000"), Some("1001")),
+            Some((1000, 1001))
+        );
         assert_eq!(drop_target(0, Some(" 501 "), None), Some((501, 501)));
     }
 
@@ -112,15 +127,34 @@ mod tests {
         // `sudo` run by root itself, or garbage in the environment, must
         // never result in "dropping" to uid 0.
         assert_eq!(drop_target(0, Some("0"), Some("0")), Some((NOBODY, NOBODY)));
-        assert_eq!(drop_target(0, Some("root"), Some("wheel")), Some((NOBODY, NOBODY)));
-        assert_eq!(drop_target(0, Some("-1"), Some("1000")), Some((NOBODY, NOBODY)));
-        assert_eq!(drop_target(0, Some("99999999999"), None), Some((NOBODY, NOBODY)));
+        assert_eq!(
+            drop_target(0, Some("root"), Some("wheel")),
+            Some((NOBODY, NOBODY))
+        );
+        assert_eq!(
+            drop_target(0, Some("-1"), Some("1000")),
+            Some((NOBODY, NOBODY))
+        );
+        assert_eq!(
+            drop_target(0, Some("99999999999"), None),
+            Some((NOBODY, NOBODY))
+        );
     }
 
     #[test]
     fn messages() {
-        assert_eq!(Privileges::Dropped { uid: 1000, gid: 1000 }.to_string(), "dropped root, running as uid 1000 gid 1000");
-        assert_eq!(Privileges::Unprivileged { uid: 501 }.to_string(), "running as uid 501");
+        assert_eq!(
+            Privileges::Dropped {
+                uid: 1000,
+                gid: 1000
+            }
+            .to_string(),
+            "dropped root, running as uid 1000 gid 1000"
+        );
+        assert_eq!(
+            Privileges::Unprivileged { uid: 501 }.to_string(),
+            "running as uid 501"
+        );
         assert!(Privileges::Kept.to_string().contains("--keep-privileges"));
     }
 }

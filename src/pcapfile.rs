@@ -73,7 +73,14 @@ impl<'a> PcapReader<'a> {
             (_, MAGIC_NANOS) => (true, true),
             _ => return Err(PcapError::BadMagic(be)),
         };
-        let mut reader = Self { rest: &file[24..], big_endian, nanos, link_type: 0, index: 0, failed: false };
+        let mut reader = Self {
+            rest: &file[24..],
+            big_endian,
+            nanos,
+            link_type: 0,
+            index: 0,
+            failed: false,
+        };
         // The upper bits of the link-type word carry FCS flags, not the type.
         reader.link_type = (reader.u32_at(file, 20) & 0x0fff_ffff) as i32;
         Ok(reader)
@@ -116,7 +123,11 @@ impl<'a> Iterator for PcapReader<'a> {
         self.rest = &self.rest[16 + caplen..];
         self.index += 1;
         let micros = if self.nanos { frac / 1000 } else { frac };
-        Some(Ok(Record { ts_micros: secs * 1_000_000 + micros, wire_len: wire_len.max(caplen), data }))
+        Some(Ok(Record {
+            ts_micros: secs * 1_000_000 + micros,
+            wire_len: wire_len.max(caplen),
+            data,
+        }))
     }
 }
 
@@ -141,10 +152,14 @@ impl PcapWriter {
 
     /// Append one packet captured at `ts_micros`.
     pub fn packet(&mut self, ts_micros: i64, data: &[u8]) -> &mut Self {
-        self.buf.extend_from_slice(&((ts_micros / 1_000_000) as u32).to_le_bytes());
-        self.buf.extend_from_slice(&((ts_micros % 1_000_000) as u32).to_le_bytes());
-        self.buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        self.buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        self.buf
+            .extend_from_slice(&((ts_micros / 1_000_000) as u32).to_le_bytes());
+        self.buf
+            .extend_from_slice(&((ts_micros % 1_000_000) as u32).to_le_bytes());
+        self.buf
+            .extend_from_slice(&(data.len() as u32).to_le_bytes());
+        self.buf
+            .extend_from_slice(&(data.len() as u32).to_le_bytes());
         self.buf.extend_from_slice(data);
         self
     }
@@ -162,13 +177,21 @@ mod tests {
     #[test]
     fn round_trip() {
         let mut w = PcapWriter::new(1);
-        w.packet(1_700_000_000_250_000, b"first").packet(1_700_000_001_000_001, &[0xab; 70]);
+        w.packet(1_700_000_000_250_000, b"first")
+            .packet(1_700_000_001_000_001, &[0xab; 70]);
         let file = w.finish();
         let reader = PcapReader::new(&file).unwrap();
         assert_eq!(reader.link_type, 1);
         let records: Vec<_> = reader.map(Result::unwrap).collect();
         assert_eq!(records.len(), 2);
-        assert_eq!(records[0], Record { ts_micros: 1_700_000_000_250_000, wire_len: 5, data: b"first" });
+        assert_eq!(
+            records[0],
+            Record {
+                ts_micros: 1_700_000_000_250_000,
+                wire_len: 5,
+                data: b"first"
+            }
+        );
         assert_eq!(records[1].ts_micros, 1_700_000_001_000_001);
         assert_eq!(records[1].data.len(), 70);
     }
@@ -188,7 +211,14 @@ mod tests {
         let mut r = PcapReader::new(&f).unwrap();
         assert_eq!(r.link_type, 101);
         let rec = r.next().unwrap().unwrap();
-        assert_eq!(rec, Record { ts_micros: 10_005_000, wire_len: 1500, data: b"abc" });
+        assert_eq!(
+            rec,
+            Record {
+                ts_micros: 10_005_000,
+                wire_len: 1500,
+                data: b"abc"
+            }
+        );
         assert!(r.next().is_none());
     }
 
@@ -197,7 +227,10 @@ mod tests {
         assert_eq!(PcapReader::new(b"short").unwrap_err(), PcapError::TooShort);
         // The repository's old fixtures began with the ASCII text "PCAP".
         let fake = b"PCAP\x02\x00\x04\x00________________extra";
-        assert_eq!(PcapReader::new(fake).unwrap_err(), PcapError::BadMagic(0x5043_4150));
+        assert_eq!(
+            PcapReader::new(fake).unwrap_err(),
+            PcapError::BadMagic(0x5043_4150)
+        );
 
         let mut w = PcapWriter::new(1);
         w.packet(0, b"complete").packet(1, b"cut-off-here");
@@ -216,7 +249,10 @@ mod tests {
         file.extend_from_slice(&u32::MAX.to_le_bytes());
         file.extend_from_slice(&u32::MAX.to_le_bytes());
         let first = PcapReader::new(&file).unwrap().next().unwrap();
-        assert!(matches!(first, Err(PcapError::OversizedRecord { index: 0, .. })));
+        assert!(matches!(
+            first,
+            Err(PcapError::OversizedRecord { index: 0, .. })
+        ));
     }
 
     proptest! {

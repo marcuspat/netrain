@@ -40,7 +40,13 @@ impl PacketRecord {
         let n = data.len().min(SAMPLE_LEN);
         let mut sample = [0u8; SAMPLE_LEN];
         sample[..n].copy_from_slice(&data[..n]);
-        Self { event, insight: None, resolved: None, sample, sample_len: n as u8 }
+        Self {
+            event,
+            insight: None,
+            resolved: None,
+            sample,
+            sample_len: n as u8,
+        }
     }
 
     /// Build a record from a decoded packet, extracting any hostname and
@@ -48,8 +54,14 @@ impl PacketRecord {
     pub fn from_decoded(event: PacketEvent, decoded: &Decoded<'_>, data: &[u8]) -> Self {
         let mut record = Self::new(event, data);
         record.insight = inspect::insight(decoded);
-        if let Transport::Udp { src_port: 53 | 5353, .. } = decoded.transport {
-            record.resolved = dns::answers(decoded.payload).filter(|(_, a)| !a.is_empty()).map(Box::new);
+        if let Transport::Udp {
+            src_port: 53 | 5353,
+            ..
+        } = decoded.transport
+        {
+            record.resolved = dns::answers(decoded.payload)
+                .filter(|(_, a)| !a.is_empty())
+                .map(Box::new);
         }
         record
     }
@@ -125,7 +137,14 @@ pub struct CaptureSink {
 pub fn channel(capacity: usize) -> (CaptureSink, Receiver<CaptureMsg>, Arc<CaptureCounters>) {
     let (tx, rx) = sync_channel(capacity.max(1));
     let counters = Arc::new(CaptureCounters::default());
-    (CaptureSink { tx, counters: Arc::clone(&counters) }, rx, counters)
+    (
+        CaptureSink {
+            tx,
+            counters: Arc::clone(&counters),
+        },
+        rx,
+        counters,
+    )
 }
 
 impl CaptureSink {
@@ -164,9 +183,12 @@ impl CaptureSink {
     pub fn submit_blocking(&self, link: LinkType, data: &[u8], wire_len: usize) -> bool {
         self.counters.received.fetch_add(1, Ordering::Relaxed);
         match observe(link, data, wire_len) {
-            Ok((event, decoded)) => {
-                self.tx.send(CaptureMsg::Packet(PacketRecord::from_decoded(event, &decoded, data))).is_ok()
-            }
+            Ok((event, decoded)) => self
+                .tx
+                .send(CaptureMsg::Packet(PacketRecord::from_decoded(
+                    event, &decoded, data,
+                )))
+                .is_ok(),
             Err(_) => {
                 self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
                 true
@@ -187,8 +209,12 @@ impl CaptureSink {
 
     /// Publish the kernel/interface drop totals reported by pcap.
     pub fn set_kernel_stats(&self, dropped: u64, interface_dropped: u64) {
-        self.counters.kernel_dropped.store(dropped, Ordering::Relaxed);
-        self.counters.interface_dropped.store(interface_dropped, Ordering::Relaxed);
+        self.counters
+            .kernel_dropped
+            .store(dropped, Ordering::Relaxed);
+        self.counters
+            .interface_dropped
+            .store(interface_dropped, Ordering::Relaxed);
     }
 }
 
@@ -206,7 +232,10 @@ impl ReplayPacer {
 
     /// `speed` multiplies playback rate; `0` means no pacing at all.
     pub fn new(speed: f64) -> Self {
-        Self { speed, last_micros: None }
+        Self {
+            speed,
+            last_micros: None,
+        }
     }
 
     /// How long to wait before delivering a packet stamped `micros`
@@ -247,7 +276,11 @@ pub fn choose_device(devices: &[DeviceInfo], requested: Option<&str>) -> Result<
     if let Some(name) = requested {
         return devices.iter().position(|d| d.name == name).ok_or_else(|| {
             let names: Vec<&str> = devices.iter().map(|d| d.name.as_str()).collect();
-            format!("Interface '{}' not found. Available: {}", name, names.join(", "))
+            format!(
+                "Interface '{}' not found. Available: {}",
+                name,
+                names.join(", ")
+            )
         });
     }
     let score = |d: &DeviceInfo| {
@@ -284,11 +317,25 @@ mod tests {
     use crate::Protocol;
 
     fn frame(port: u16) -> Vec<u8> {
-        ethernet(0x0800, &ipv4(6, [10, 0, 0, 2], [10, 0, 0, 1], &tcp(50000, port, TcpFlags::SYN, b"")))
+        ethernet(
+            0x0800,
+            &ipv4(
+                6,
+                [10, 0, 0, 2],
+                [10, 0, 0, 1],
+                &tcp(50000, port, TcpFlags::SYN, b""),
+            ),
+        )
     }
 
     fn dev(name: &str, up: bool, running: bool, loopback: bool, has_address: bool) -> DeviceInfo {
-        DeviceInfo { name: name.to_string(), up, running, loopback, has_address }
+        DeviceInfo {
+            name: name.to_string(),
+            up,
+            running,
+            loopback,
+            has_address,
+        }
     }
 
     #[test]
@@ -296,7 +343,9 @@ mod tests {
         let (sink, rx, counters) = channel(16);
         let f = frame(443);
         assert!(sink.submit(LinkType::Ethernet, &f, 1500));
-        let CaptureMsg::Packet(rec) = rx.try_recv().unwrap() else { panic!("expected packet") };
+        let CaptureMsg::Packet(rec) = rx.try_recv().unwrap() else {
+            panic!("expected packet")
+        };
         assert_eq!(rec.event.protocol, Protocol::HTTPS);
         assert_eq!(rec.event.wire_len, 1500);
         assert_eq!(rec.sample(), &f[..]);
@@ -309,7 +358,9 @@ mod tests {
         let mut f = frame(80);
         f.extend_from_slice(&[0xab; 1400]);
         sink.submit(LinkType::Ethernet, &f, f.len());
-        let CaptureMsg::Packet(rec) = rx.try_recv().unwrap() else { panic!() };
+        let CaptureMsg::Packet(rec) = rx.try_recv().unwrap() else {
+            panic!()
+        };
         assert_eq!(rec.sample().len(), SAMPLE_LEN);
         assert_eq!(rec.sample(), &f[..SAMPLE_LEN]);
     }
@@ -376,12 +427,21 @@ mod tests {
         ];
         assert_eq!(choose_device(&mac, None), Ok(2));
         // Only loopback available: still usable.
-        assert_eq!(choose_device(&[dev("lo", true, true, true, true)], None), Ok(0));
+        assert_eq!(
+            choose_device(&[dev("lo", true, true, true, true)], None),
+            Ok(0)
+        );
         // Every real interface is down: a live loopback beats a dead port.
-        let unplugged = [dev("eth0", false, false, false, true), dev("lo", true, true, true, true)];
+        let unplugged = [
+            dev("eth0", false, false, false, true),
+            dev("lo", true, true, true, true),
+        ];
         assert_eq!(choose_device(&unplugged, None), Ok(1));
         // Ties keep pcap's ordering.
-        let tie = [dev("eth0", true, true, false, true), dev("eth1", true, true, false, true)];
+        let tie = [
+            dev("eth0", true, true, false, true),
+            dev("eth1", true, true, false, true),
+        ];
         assert_eq!(choose_device(&tie, None), Ok(0));
     }
 
@@ -389,11 +449,23 @@ mod tests {
     fn replay_pacing_follows_timestamps() {
         use std::time::Duration;
         let mut p = ReplayPacer::new(1.0);
-        assert_eq!(p.delay_before(1_000_000), Duration::ZERO, "first packet is immediate");
+        assert_eq!(
+            p.delay_before(1_000_000),
+            Duration::ZERO,
+            "first packet is immediate"
+        );
         assert_eq!(p.delay_before(1_250_000), Duration::from_millis(250));
         assert_eq!(p.delay_before(1_250_000), Duration::ZERO);
-        assert_eq!(p.delay_before(1_000_000), Duration::ZERO, "out-of-order timestamp");
-        assert_eq!(p.delay_before(9_000_000_000), ReplayPacer::MAX_GAP, "idle gaps are capped");
+        assert_eq!(
+            p.delay_before(1_000_000),
+            Duration::ZERO,
+            "out-of-order timestamp"
+        );
+        assert_eq!(
+            p.delay_before(9_000_000_000),
+            ReplayPacer::MAX_GAP,
+            "idle gaps are capped"
+        );
 
         let mut fast = ReplayPacer::new(4.0);
         fast.delay_before(0);
@@ -418,7 +490,10 @@ mod tests {
 
     #[test]
     fn requested_device_must_exist() {
-        let devs = [dev("lo", true, true, true, true), dev("eth0", true, true, false, true)];
+        let devs = [
+            dev("lo", true, true, true, true),
+            dev("eth0", true, true, false, true),
+        ];
         assert_eq!(choose_device(&devs, Some("lo")), Ok(0));
         let err = choose_device(&devs, Some("eth9")).unwrap_err();
         assert!(err.contains("eth9") && err.contains("lo, eth0"), "{err}");

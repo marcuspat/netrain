@@ -12,7 +12,8 @@ use netrain::decode::TcpFlags;
 use netrain::pcapfile::{PcapReader, PcapWriter};
 use netrain::replay::analyze_pcap;
 use netrain::synth::{
-    client_hello, dns_query, dns_response, eth_tcp, eth_udp, ethernet, ipv4, ipv6, tcp, udp, with_vlan,
+    client_hello, dns_query, dns_response, eth_tcp, eth_udp, ethernet, ipv4, ipv6, tcp, udp,
+    with_vlan,
 };
 use netrain::{Protocol, ThreatLevel};
 
@@ -33,19 +34,59 @@ fn normal_traffic() -> Vec<u8> {
         w.packet(t, &frame);
         t += 40_000;
     };
-    add(eth_udp(CLIENT, RESOLVER, 53001, 53, &dns_query("example.com")));
-    add(eth_udp(RESOLVER, CLIENT, 53, 53001, &dns_response("example.com", &[SERVER.into()])));
+    add(eth_udp(
+        CLIENT,
+        RESOLVER,
+        53001,
+        53,
+        &dns_query("example.com"),
+    ));
+    add(eth_udp(
+        RESOLVER,
+        CLIENT,
+        53,
+        53001,
+        &dns_response("example.com", &[SERVER.into()]),
+    ));
     add(eth_tcp(CLIENT, SERVER, 50001, 443, SYN, b""));
     add(eth_tcp(SERVER, CLIENT, 443, 50001, SYN | ACK, b""));
     add(eth_tcp(CLIENT, SERVER, 50001, 443, ACK, b""));
     add(eth_tcp(CLIENT, SERVER, 50001, 443, PSH_ACK, &tls_hello));
-    add(eth_tcp(SERVER, CLIENT, 443, 50001, PSH_ACK, &[0x17, 0x03, 0x03, 0x00, 0x02, 0xaa, 0xbb]));
+    add(eth_tcp(
+        SERVER,
+        CLIENT,
+        443,
+        50001,
+        PSH_ACK,
+        &[0x17, 0x03, 0x03, 0x00, 0x02, 0xaa, 0xbb],
+    ));
     add(eth_tcp(CLIENT, SERVER, 50002, 80, SYN, b""));
     add(eth_tcp(SERVER, CLIENT, 80, 50002, SYN | ACK, b""));
-    add(eth_tcp(CLIENT, SERVER, 50002, 80, PSH_ACK, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"));
-    add(eth_tcp(SERVER, CLIENT, 80, 50002, PSH_ACK, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
+    add(eth_tcp(
+        CLIENT,
+        SERVER,
+        50002,
+        80,
+        PSH_ACK,
+        b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+    ));
+    add(eth_tcp(
+        SERVER,
+        CLIENT,
+        80,
+        50002,
+        PSH_ACK,
+        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+    ));
     add(eth_tcp(CLIENT, [192, 168, 1, 20], 50003, 22, SYN, b""));
-    add(eth_tcp([192, 168, 1, 20], CLIENT, 22, 50003, PSH_ACK, b"SSH-2.0-OpenSSH_9.6\r\n"));
+    add(eth_tcp(
+        [192, 168, 1, 20],
+        CLIENT,
+        22,
+        50003,
+        PSH_ACK,
+        b"SSH-2.0-OpenSSH_9.6\r\n",
+    ));
     w.finish()
 }
 
@@ -85,22 +126,87 @@ fn mixed_protocols() -> Vec<u8> {
         w.packet(t, &frame);
         t += 100_000;
     };
-    add(eth_tcp(CLIENT, SERVER, 50001, 5432, PSH_ACK, b"\x00\x00\x00\x08")); // TCP
+    add(eth_tcp(
+        CLIENT,
+        SERVER,
+        50001,
+        5432,
+        PSH_ACK,
+        b"\x00\x00\x00\x08",
+    )); // TCP
     add(eth_udp(CLIENT, SERVER, 50002, 123, &[0x1b; 48])); // UDP (NTP)
-    add(eth_udp(CLIENT, RESOLVER, 50003, 53, &dns_query("rust-lang.org"))); // DNS
-    add(eth_tcp(CLIENT, SERVER, 50004, 8080, PSH_ACK, b"POST /api HTTP/1.1\r\n\r\n")); // HTTP off-port
+    add(eth_udp(
+        CLIENT,
+        RESOLVER,
+        50003,
+        53,
+        &dns_query("rust-lang.org"),
+    )); // DNS
+    add(eth_tcp(
+        CLIENT,
+        SERVER,
+        50004,
+        8080,
+        PSH_ACK,
+        b"POST /api HTTP/1.1\r\n\r\n",
+    )); // HTTP off-port
     add(eth_tcp(CLIENT, SERVER, 50005, 443, SYN, b"")); // HTTPS by port
-    add(eth_tcp(CLIENT, SERVER, 50006, 2222, PSH_ACK, b"SSH-2.0-test\r\n")); // SSH off-port
-    add(ethernet(0x86dd, &ipv6(17, v6_src, v6_dst, &udp(50007, 53, &dns_query("ipv6.example"))))); // DNS over IPv6
-    add(ethernet(0x86dd, &ipv6(6, v6_src, v6_dst, &tcp(50008, 443, SYN, b"")))); // HTTPS over IPv6
+    add(eth_tcp(
+        CLIENT,
+        SERVER,
+        50006,
+        2222,
+        PSH_ACK,
+        b"SSH-2.0-test\r\n",
+    )); // SSH off-port
+    add(ethernet(
+        0x86dd,
+        &ipv6(
+            17,
+            v6_src,
+            v6_dst,
+            &udp(50007, 53, &dns_query("ipv6.example")),
+        ),
+    )); // DNS over IPv6
+    add(ethernet(
+        0x86dd,
+        &ipv6(6, v6_src, v6_dst, &tcp(50008, 443, SYN, b"")),
+    )); // HTTPS over IPv6
     add(with_vlan(&eth_tcp(CLIENT, SERVER, 50009, 80, SYN, b""), 42)); // HTTP inside a VLAN
-    add(eth_udp(CLIENT, SERVER, 50010, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8])); // QUIC initial
-    add(eth_udp(CLIENT, [224, 0, 0, 251], 5353, 5353, &dns_query("printer.local"))); // mDNS
-    add(eth_udp([0, 0, 0, 0], [255, 255, 255, 255], 68, 67, &[1, 1, 6, 0])); // DHCP discover
-    add(eth_udp(CLIENT, [239, 255, 255, 250], 50011, 1900, b"M-SEARCH * HTTP/1.1\r\n\r\n")); // SSDP
+    add(eth_udp(
+        CLIENT,
+        SERVER,
+        50010,
+        443,
+        &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8],
+    )); // QUIC initial
+    add(eth_udp(
+        CLIENT,
+        [224, 0, 0, 251],
+        5353,
+        5353,
+        &dns_query("printer.local"),
+    )); // mDNS
+    add(eth_udp(
+        [0, 0, 0, 0],
+        [255, 255, 255, 255],
+        68,
+        67,
+        &[1, 1, 6, 0],
+    )); // DHCP discover
+    add(eth_udp(
+        CLIENT,
+        [239, 255, 255, 250],
+        50011,
+        1900,
+        b"M-SEARCH * HTTP/1.1\r\n\r\n",
+    )); // SSDP
     add(ethernet(0x0806, &[0u8; 28])); // ARP: not IP
     add(vec![0xde, 0xad, 0xbe, 0xef]); // runt frame
-    add(ethernet(0x0800, &ipv4(1, CLIENT, SERVER, &[8, 0, 0, 0, 0, 1, 0, 1]))); // ICMP echo
+    add(ethernet(
+        0x0800,
+        &ipv4(1, CLIENT, SERVER, &[8, 0, 0, 0, 0, 1, 0, 1]),
+    )); // ICMP echo
     w.finish()
 }
 
@@ -114,7 +220,9 @@ fn fixtures() -> [(&'static str, Vec<u8>); 4] {
 }
 
 fn fixture_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
 }
 
 fn load(name: &str) -> Vec<u8> {
@@ -156,11 +264,26 @@ fn normal_traffic_is_classified_and_raises_nothing() {
     assert_eq!(s.count(Protocol::HTTPS), 5);
     assert_eq!(s.count(Protocol::HTTP), 4);
     assert_eq!(s.count(Protocol::SSH), 2);
-    assert_eq!(s.count(Protocol::TCP) + s.count(Protocol::UDP) + s.count(Protocol::Unknown), 0);
+    assert_eq!(
+        s.count(Protocol::TCP) + s.count(Protocol::UDP) + s.count(Protocol::Unknown),
+        0
+    );
     assert_eq!(s.flows, 4, "DNS, TLS, HTTP and SSH conversations");
-    assert_eq!(s.hostnames.iter().collect::<Vec<_>>(), ["example.com"], "from DNS, SNI and Host");
-    assert_eq!(s.top_talkers[0].0.to_string(), "192.168.1.10", "the client is in every flow");
-    assert!(s.alerts.is_empty(), "false positive on ordinary traffic: {:?}", s.alerts);
+    assert_eq!(
+        s.hostnames.iter().collect::<Vec<_>>(),
+        ["example.com"],
+        "from DNS, SNI and Host"
+    );
+    assert_eq!(
+        s.top_talkers[0].0.to_string(),
+        "192.168.1.10",
+        "the client is in every flow"
+    );
+    assert!(
+        s.alerts.is_empty(),
+        "false positive on ordinary traffic: {:?}",
+        s.alerts
+    );
     assert_eq!(s.peak(), ThreatLevel::Low);
 }
 
@@ -168,7 +291,10 @@ fn normal_traffic_is_classified_and_raises_nothing() {
 fn port_scan_is_detected_with_source_and_target() {
     let s = analyze_pcap(&load("port_scan.pcap")).unwrap();
     assert_eq!(s.packets, 40);
-    assert_eq!(s.alerts.iter().collect::<Vec<_>>(), ["Port scan 203.0.113.7 -> 10.0.0.1"]);
+    assert_eq!(
+        s.alerts.iter().collect::<Vec<_>>(),
+        ["Port scan 203.0.113.7 -> 10.0.0.1"]
+    );
     assert_eq!(s.peak(), ThreatLevel::High);
 }
 
@@ -177,9 +303,16 @@ fn syn_flood_is_detected_on_the_victim() {
     let s = analyze_pcap(&load("ddos_attack.pcap")).unwrap();
     assert_eq!(s.packets, 150);
     assert_eq!(s.count(Protocol::HTTP), 150);
-    assert_eq!(s.alerts.iter().collect::<Vec<_>>(), ["SYN flood on 10.0.0.80"]);
+    assert_eq!(
+        s.alerts.iter().collect::<Vec<_>>(),
+        ["SYN flood on 10.0.0.80"]
+    );
     assert_eq!(s.flows, 150, "one flow per spoofed source");
-    assert_eq!(s.top_talkers[0].0.to_string(), "10.0.0.80", "the victim received everything");
+    assert_eq!(
+        s.top_talkers[0].0.to_string(),
+        "10.0.0.80",
+        "the victim received everything"
+    );
     assert_eq!(s.peak(), ThreatLevel::Critical);
 }
 
@@ -191,7 +324,11 @@ fn mixed_protocols_cover_ipv6_vlan_and_skip_non_ip() {
     assert_eq!(s.count(Protocol::TCP), 1);
     assert_eq!(s.count(Protocol::NTP), 1);
     assert_eq!(s.count(Protocol::DNS), 2, "IPv4 and IPv6");
-    assert_eq!(s.count(Protocol::HTTP), 2, "off-port by payload, and inside a VLAN");
+    assert_eq!(
+        s.count(Protocol::HTTP),
+        2,
+        "off-port by payload, and inside a VLAN"
+    );
     assert_eq!(s.count(Protocol::HTTPS), 2, "IPv4 and IPv6");
     assert_eq!(s.count(Protocol::SSH), 1);
     assert_eq!(s.count(Protocol::QUIC), 1);
@@ -199,8 +336,15 @@ fn mixed_protocols_cover_ipv6_vlan_and_skip_non_ip() {
     assert_eq!(s.count(Protocol::DHCP), 1);
     assert_eq!(s.count(Protocol::SSDP), 1);
     assert_eq!(s.count(Protocol::ICMP), 1);
-    assert_eq!(s.count(Protocol::UDP) + s.count(Protocol::Unknown), 0, "nothing left unlabelled");
-    assert_eq!(s.hostnames.iter().collect::<Vec<_>>(), ["ipv6.example", "printer.local", "rust-lang.org"]);
+    assert_eq!(
+        s.count(Protocol::UDP) + s.count(Protocol::Unknown),
+        0,
+        "nothing left unlabelled"
+    );
+    assert_eq!(
+        s.hostnames.iter().collect::<Vec<_>>(),
+        ["ipv6.example", "printer.local", "rust-lang.org"]
+    );
     assert!(s.alerts.is_empty());
 }
 
@@ -213,7 +357,11 @@ fn binary_summary_matches_library_analysis() {
             .args(["--read", path.to_str().unwrap(), "--summary"])
             .output()
             .unwrap();
-        assert!(out.status.success(), "{name}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let printed = String::from_utf8_lossy(&out.stdout);
         let mut expected = analyze_pcap(&load(name)).unwrap();
         // The default kernel filter (`ip or ip6`) removes non-IP frames
@@ -227,7 +375,13 @@ fn binary_summary_matches_library_analysis() {
 fn binary_summary_honours_the_filter() {
     let path = fixture_path("mixed_protocols.pcap");
     let out = Command::new(env!("CARGO_BIN_EXE_netrain"))
-        .args(["--read", path.to_str().unwrap(), "--summary", "--filter", "udp port 53"])
+        .args([
+            "--read",
+            path.to_str().unwrap(),
+            "--summary",
+            "--filter",
+            "udp port 53",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success());

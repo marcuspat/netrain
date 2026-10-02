@@ -15,7 +15,10 @@ pub struct ProtocolSnapshot {
 
 impl ProtocolSnapshot {
     fn new() -> Self {
-        Self { counts: [0; PROTOCOLS], total: 0 }
+        Self {
+            counts: [0; PROTOCOLS],
+            total: 0,
+        }
     }
 
     /// Packets of `protocol` in this slice.
@@ -37,7 +40,10 @@ impl Default for ProtocolActivityTracker {
 
 impl ProtocolActivityTracker {
     pub fn new() -> Self {
-        Self { history: VecDeque::with_capacity(HISTORY_SIZE), current: ProtocolSnapshot::new() }
+        Self {
+            history: VecDeque::with_capacity(HISTORY_SIZE),
+            current: ProtocolSnapshot::new(),
+        }
     }
 
     pub fn record_packet(&mut self, protocol: Protocol) {
@@ -47,7 +53,10 @@ impl ProtocolActivityTracker {
 
     pub fn tick(&mut self) {
         // Push current snapshot to history and reset
-        self.history.push_back(std::mem::replace(&mut self.current, ProtocolSnapshot::new()));
+        self.history.push_back(std::mem::replace(
+            &mut self.current,
+            ProtocolSnapshot::new(),
+        ));
         if self.history.len() > HISTORY_SIZE {
             self.history.pop_front();
         }
@@ -100,7 +109,11 @@ mod tests {
         t.tick();
         assert_eq!(t.get_history()[0].get(Protocol::QUIC), 8);
         assert_eq!(t.get_history()[0].total, (1..=13).sum::<u64>());
-        assert_eq!(*t.get_sparkline_data(Protocol::QUIC).last().unwrap(), 0, "new slice starts empty");
+        assert_eq!(
+            *t.get_sparkline_data(Protocol::QUIC).last().unwrap(),
+            0,
+            "new slice starts empty"
+        );
     }
 
     #[test]

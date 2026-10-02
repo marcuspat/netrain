@@ -207,7 +207,10 @@ impl Default for ThreatEngine {
 }
 
 fn prune(queue: &mut VecDeque<Instant>, now: Instant, window: Duration) {
-    while queue.front().is_some_and(|&t| now.saturating_duration_since(t) > window) {
+    while queue
+        .front()
+        .is_some_and(|&t| now.saturating_duration_since(t) > window)
+    {
         queue.pop_front();
     }
 }
@@ -237,7 +240,10 @@ impl ThreatEngine {
     pub fn observe_parts(&mut self, src: IpAddr, dst: IpAddr, transport: Transport, now: Instant) {
         self.observe_rate(now);
 
-        let Transport::Tcp { dst_port, flags, .. } = transport else {
+        let Transport::Tcp {
+            dst_port, flags, ..
+        } = transport
+        else {
             return;
         };
 
@@ -250,7 +256,10 @@ impl ThreatEngine {
                 target.syn_acks.push_back(now);
                 target.last_seen = now;
             }
-        } else if flags.is_null() || flags.is_xmas() || flags.0 & 0x3f == crate::decode::TcpFlags::FIN {
+        } else if flags.is_null()
+            || flags.is_xmas()
+            || flags.0 & 0x3f == crate::decode::TcpFlags::FIN
+        {
             self.observe_stealth(src, now);
         }
     }
@@ -259,24 +268,44 @@ impl ThreatEngine {
         self.recent.push_back(now);
         prune(&mut self.recent, now, Duration::from_secs(1));
         // The queue only needs to prove the threshold was crossed.
-        let cap = (self.config.rate_threshold as usize).saturating_add(1).max(1);
+        let cap = (self.config.rate_threshold as usize)
+            .saturating_add(1)
+            .max(1);
         while self.recent.len() > cap {
             self.recent.pop_front();
         }
         if self.recent.len() as f64 > self.config.rate_threshold {
             let limit = self.config.rate_threshold as u64;
-            self.raise(AlertKind::TrafficSpike, None, None, now, format_args!("over {limit} packets/s"));
+            self.raise(
+                AlertKind::TrafficSpike,
+                None,
+                None,
+                now,
+                format_args!("over {limit} packets/s"),
+            );
         }
     }
 
     fn observe_attempt(&mut self, src: IpAddr, dst: IpAddr, port: u16, now: Instant) {
-        Self::make_room(&mut self.sources, self.config.max_tracked_hosts, &src, |s| s.last_seen);
+        Self::make_room(
+            &mut self.sources,
+            self.config.max_tracked_hosts,
+            &src,
+            |s| s.last_seen,
+        );
         let window = self.config.scan_window;
         let cap = self.config.max_attempts_per_source;
-        let state = self.sources.entry(src).or_insert_with(|| SourceState::new(now));
+        let state = self
+            .sources
+            .entry(src)
+            .or_insert_with(|| SourceState::new(now));
         state.last_seen = now;
         state.push_attempt(now, dst, port);
-        while state.attempts.front().is_some_and(|&(t, _, _)| now.saturating_duration_since(t) > window) {
+        while state
+            .attempts
+            .front()
+            .is_some_and(|&(t, _, _)| now.saturating_duration_since(t) > window)
+        {
             state.pop_attempt();
         }
         while state.attempts.len() > cap {
@@ -290,7 +319,13 @@ impl ThreatEngine {
         let secs = window.as_secs();
 
         if ports >= self.config.port_scan_threshold {
-            self.raise(AlertKind::PortScan, Some(src), Some(dst), now, format_args!("{ports} ports in {secs}s"));
+            self.raise(
+                AlertKind::PortScan,
+                Some(src),
+                Some(dst),
+                now,
+                format_args!("{ports} ports in {secs}s"),
+            );
         }
         if hosts >= self.config.host_sweep_threshold {
             self.raise(
@@ -304,7 +339,12 @@ impl ThreatEngine {
     }
 
     fn observe_syn(&mut self, dst: IpAddr, now: Instant) {
-        Self::make_room(&mut self.targets, self.config.max_tracked_hosts, &dst, |t| t.last_seen);
+        Self::make_room(
+            &mut self.targets,
+            self.config.max_tracked_hosts,
+            &dst,
+            |t| t.last_seen,
+        );
         let window = self.config.flood_window;
         let threshold = self.config.syn_flood_threshold;
         let state = self.targets.entry(dst).or_insert_with(|| TargetState {
@@ -341,10 +381,18 @@ impl ThreatEngine {
     }
 
     fn observe_stealth(&mut self, src: IpAddr, now: Instant) {
-        Self::make_room(&mut self.sources, self.config.max_tracked_hosts, &src, |s| s.last_seen);
+        Self::make_room(
+            &mut self.sources,
+            self.config.max_tracked_hosts,
+            &src,
+            |s| s.last_seen,
+        );
         let window = self.config.scan_window;
         let cap = self.config.stealth_threshold.saturating_mul(4).max(16);
-        let state = self.sources.entry(src).or_insert_with(|| SourceState::new(now));
+        let state = self
+            .sources
+            .entry(src)
+            .or_insert_with(|| SourceState::new(now));
         state.last_seen = now;
         state.stealth.push_back(now);
         prune(&mut state.stealth, now, window);
@@ -353,7 +401,13 @@ impl ThreatEngine {
         }
         if state.stealth.len() >= self.config.stealth_threshold {
             let probes = state.stealth.len();
-            self.raise(AlertKind::StealthScan, Some(src), None, now, format_args!("{probes} NULL/FIN/Xmas probes"));
+            self.raise(
+                AlertKind::StealthScan,
+                Some(src),
+                None,
+                now,
+                format_args!("{probes} NULL/FIN/Xmas probes"),
+            );
         }
     }
 
@@ -362,12 +416,18 @@ impl ThreatEngine {
     /// `max_tracked_hosts` entries, never unbounded memory. Eviction removes
     /// an eighth of the table at once: finding the single oldest entry on
     /// every packet of a spoofed flood made each packet cost a full scan.
-    fn make_room<S>(map: &mut HashMap<IpAddr, S>, cap: usize, incoming: &IpAddr, last_seen: fn(&S) -> Instant) {
+    fn make_room<S>(
+        map: &mut HashMap<IpAddr, S>,
+        cap: usize,
+        incoming: &IpAddr,
+        last_seen: fn(&S) -> Instant,
+    ) {
         if map.len() < cap || map.contains_key(incoming) {
             return;
         }
         let remove = (cap / 8).max(1).min(map.len());
-        let mut ages: Vec<(Instant, IpAddr)> = map.iter().map(|(ip, s)| (last_seen(s), *ip)).collect();
+        let mut ages: Vec<(Instant, IpAddr)> =
+            map.iter().map(|(ip, s)| (last_seen(s), *ip)).collect();
         ages.select_nth_unstable(remove - 1);
         for (_, ip) in ages.into_iter().take(remove) {
             map.remove(&ip);
@@ -397,14 +457,28 @@ impl ThreatEngine {
         if self.alerts.len() >= self.config.max_tracked_hosts {
             self.expire(now);
             if self.alerts.len() >= self.config.max_tracked_hosts {
-                if let Some(k) = self.alerts.iter().min_by_key(|(_, a)| a.last_seen).map(|(k, _)| *k) {
+                if let Some(k) = self
+                    .alerts
+                    .iter()
+                    .min_by_key(|(_, a)| a.last_seen)
+                    .map(|(k, _)| *k)
+                {
                     self.alerts.remove(&k);
                 }
             }
         }
         self.revision += 1;
-        self.alerts
-            .insert(key, Alert { kind, source, target, detail: detail.to_string(), first_seen: now, last_seen: now });
+        self.alerts.insert(
+            key,
+            Alert {
+                kind,
+                source,
+                target,
+                detail: detail.to_string(),
+                first_seen: now,
+                last_seen: now,
+            },
+        );
     }
 
     /// Changes whenever a new alert is raised. Lets callers skip re-reading
@@ -421,17 +495,23 @@ impl ThreatEngine {
     /// Drop alerts and host state that have gone quiet.
     pub fn expire(&mut self, now: Instant) {
         let ttl = self.config.alert_ttl;
-        self.alerts.retain(|_, a| now.saturating_duration_since(a.last_seen) <= ttl);
+        self.alerts
+            .retain(|_, a| now.saturating_duration_since(a.last_seen) <= ttl);
         let idle = self.config.scan_window.max(self.config.flood_window);
-        self.sources.retain(|_, s| now.saturating_duration_since(s.last_seen) <= idle);
-        self.targets.retain(|_, t| now.saturating_duration_since(t.last_seen) <= idle);
+        self.sources
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) <= idle);
+        self.targets
+            .retain(|_, t| now.saturating_duration_since(t.last_seen) <= idle);
     }
 
     /// Alerts still active at `now`, most severe and most recent first.
     pub fn active_alerts(&self, now: Instant) -> Vec<&Alert> {
         let ttl = self.config.alert_ttl;
-        let mut alerts: Vec<&Alert> =
-            self.alerts.values().filter(|a| now.saturating_duration_since(a.last_seen) <= ttl).collect();
+        let mut alerts: Vec<&Alert> = self
+            .alerts
+            .values()
+            .filter(|a| now.saturating_duration_since(a.last_seen) <= ttl)
+            .collect();
         alerts.sort_by(|a, b| {
             severity_rank(b.kind.severity())
                 .cmp(&severity_rank(a.kind.severity()))
@@ -445,7 +525,10 @@ impl ThreatEngine {
     /// one attack is High; a SYN flood, or several attacks at once, Critical.
     pub fn threat_level(&self, now: Instant) -> ThreatLevel {
         let active = self.active_alerts(now);
-        let high = active.iter().filter(|a| a.kind.severity() == Severity::High).count();
+        let high = active
+            .iter()
+            .filter(|a| a.kind.severity() == Severity::High)
+            .count();
         if active.iter().any(|a| a.kind == AlertKind::SynFlood) || high >= 2 {
             ThreatLevel::Critical
         } else if high == 1 {
@@ -461,7 +544,10 @@ impl ThreatEngine {
     pub fn is_scanning(&self, ip: IpAddr, now: Instant) -> bool {
         self.active_alerts(now).iter().any(|a| {
             a.source == Some(ip)
-                && matches!(a.kind, AlertKind::PortScan | AlertKind::HostSweep | AlertKind::StealthScan)
+                && matches!(
+                    a.kind,
+                    AlertKind::PortScan | AlertKind::HostSweep | AlertKind::StealthScan
+                )
         })
     }
 
@@ -488,7 +574,14 @@ mod tests {
     const VICTIM: [u8; 4] = [10, 0, 0, 1];
     const ATTACKER: [u8; 4] = [203, 0, 113, 7];
 
-    fn feed(engine: &mut ThreatEngine, src: [u8; 4], dst: [u8; 4], port: u16, flags: u8, at: Instant) {
+    fn feed(
+        engine: &mut ThreatEngine,
+        src: [u8; 4],
+        dst: [u8; 4],
+        port: u16,
+        flags: u8,
+        at: Instant,
+    ) {
         let pkt = ipv4(6, src, dst, &tcp(40000, port, flags, b""));
         engine.observe(&decode(LinkType::RawIp, &pkt).unwrap(), at);
     }
@@ -513,7 +606,14 @@ mod tests {
         let t0 = Instant::now();
         let mut e = ThreatEngine::default();
         for port in 1..=40u16 {
-            feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::SYN, t0 + Duration::from_millis(u64::from(port)));
+            feed(
+                &mut e,
+                ATTACKER,
+                VICTIM,
+                port,
+                TcpFlags::SYN,
+                t0 + Duration::from_millis(u64::from(port)),
+            );
         }
         let now = t0 + Duration::from_secs(1);
         let alerts = e.active_alerts(now);
@@ -521,7 +621,10 @@ mod tests {
         assert_eq!(alerts[0].kind, AlertKind::PortScan);
         assert_eq!(alerts[0].source, Some(ip(ATTACKER)));
         assert_eq!(alerts[0].target, Some(ip(VICTIM)));
-        assert_eq!(alerts[0].summary(), "Port scan 203.0.113.7 -> 10.0.0.1 (40 ports in 60s)");
+        assert_eq!(
+            alerts[0].summary(),
+            "Port scan 203.0.113.7 -> 10.0.0.1 (40 ports in 60s)"
+        );
         assert_eq!(e.threat_level(now), ThreatLevel::High);
         assert!(e.is_scanning(ip(ATTACKER), now));
         assert!(!e.is_scanning(ip(VICTIM), now));
@@ -533,7 +636,14 @@ mod tests {
         let mut e = ThreatEngine::default();
         // One new port every 10 seconds: never 20 distinct ports within 60s.
         for i in 0..40u16 {
-            feed(&mut e, ATTACKER, VICTIM, 1000 + i, TcpFlags::SYN, t0 + Duration::from_secs(10 * u64::from(i)));
+            feed(
+                &mut e,
+                ATTACKER,
+                VICTIM,
+                1000 + i,
+                TcpFlags::SYN,
+                t0 + Duration::from_secs(10 * u64::from(i)),
+            );
         }
         assert!(e.active_alerts(t0 + Duration::from_secs(400)).is_empty());
     }
@@ -548,7 +658,10 @@ mod tests {
         let alerts = e.active_alerts(t0);
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].kind, AlertKind::HostSweep);
-        assert_eq!(alerts[0].summary(), "Host sweep from 203.0.113.7 (25 hosts on port 22 in 60s)");
+        assert_eq!(
+            alerts[0].summary(),
+            "Host sweep from 203.0.113.7 (25 hosts on port 22 in 60s)"
+        );
     }
 
     #[test]
@@ -564,17 +677,32 @@ mod tests {
     #[test]
     fn stealth_scans_are_detected() {
         let t0 = Instant::now();
-        for flags in [0u8, TcpFlags::FIN, TcpFlags::FIN | TcpFlags::PSH | TcpFlags::URG] {
+        for flags in [
+            0u8,
+            TcpFlags::FIN,
+            TcpFlags::FIN | TcpFlags::PSH | TcpFlags::URG,
+        ] {
             let mut e = ThreatEngine::default();
             for port in 1..=5u16 {
                 feed(&mut e, ATTACKER, VICTIM, port, flags, t0);
             }
-            assert_eq!(e.active_alerts(t0)[0].kind, AlertKind::StealthScan, "flags {flags:#04x}");
+            assert_eq!(
+                e.active_alerts(t0)[0].kind,
+                AlertKind::StealthScan,
+                "flags {flags:#04x}"
+            );
         }
         // FIN+ACK is an ordinary connection close.
         let mut e = ThreatEngine::default();
         for port in 1..=50u16 {
-            feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::FIN | TcpFlags::ACK, t0);
+            feed(
+                &mut e,
+                ATTACKER,
+                VICTIM,
+                port,
+                TcpFlags::FIN | TcpFlags::ACK,
+                t0,
+            );
         }
         assert!(e.active_alerts(t0).is_empty());
     }
@@ -587,7 +715,14 @@ mod tests {
         let mut e = ThreatEngine::default();
         for i in 0..150u32 {
             let src = [198, 51, (i / 256) as u8, (i % 256) as u8];
-            feed(&mut e, src, VICTIM, 80, TcpFlags::SYN, t0 + Duration::from_millis(u64::from(i)));
+            feed(
+                &mut e,
+                src,
+                VICTIM,
+                80,
+                TcpFlags::SYN,
+                t0 + Duration::from_millis(u64::from(i)),
+            );
         }
         let now = t0 + Duration::from_secs(1);
         let alerts = e.active_alerts(now);
@@ -601,9 +736,20 @@ mod tests {
             let src = [198, 51, (i / 256) as u8, (i % 256) as u8];
             let at = t0 + Duration::from_millis(u64::from(i));
             feed(&mut e, src, VICTIM, 80, TcpFlags::SYN, at);
-            feed(&mut e, VICTIM, src, 40000, TcpFlags::SYN | TcpFlags::ACK, at);
+            feed(
+                &mut e,
+                VICTIM,
+                src,
+                40000,
+                TcpFlags::SYN | TcpFlags::ACK,
+                at,
+            );
         }
-        assert!(e.active_alerts(now).is_empty(), "{:?}", e.active_alerts(now));
+        assert!(
+            e.active_alerts(now).is_empty(),
+            "{:?}",
+            e.active_alerts(now)
+        );
     }
 
     #[test]
@@ -612,13 +758,23 @@ mod tests {
         // push the table to its cap. Its state is the most recently used, so
         // eviction must never reset its SYN-ACK credit.
         let t0 = Instant::now();
-        let cfg = EngineConfig { max_tracked_hosts: 16, ..EngineConfig::default() };
+        let cfg = EngineConfig {
+            max_tracked_hosts: 16,
+            ..EngineConfig::default()
+        };
         let mut e = ThreatEngine::new(cfg);
         for i in 0..400u32 {
             let at = t0 + Duration::from_millis(u64::from(i) * 10);
             let client = [198, 51, (i / 250) as u8, (i % 250) as u8 + 1];
             feed(&mut e, client, VICTIM, 443, TcpFlags::SYN, at);
-            feed(&mut e, VICTIM, client, 40000, TcpFlags::SYN | TcpFlags::ACK, at);
+            feed(
+                &mut e,
+                VICTIM,
+                client,
+                40000,
+                TcpFlags::SYN | TcpFlags::ACK,
+                at,
+            );
             // Churn: three other targets per round.
             for j in 0..3u32 {
                 let b = (i * 3 + j).to_be_bytes();
@@ -627,7 +783,9 @@ mod tests {
         }
         let now = t0 + Duration::from_secs(4);
         assert!(
-            !e.active_alerts(now).iter().any(|a| a.kind == AlertKind::SynFlood && a.target == Some(ip(VICTIM))),
+            !e.active_alerts(now)
+                .iter()
+                .any(|a| a.kind == AlertKind::SynFlood && a.target == Some(ip(VICTIM))),
             "{:?}",
             e.active_alerts(now)
         );
@@ -636,7 +794,10 @@ mod tests {
     #[test]
     fn traffic_spike_is_medium_and_counts_all_protocols() {
         let t0 = Instant::now();
-        let mut e = ThreatEngine::new(EngineConfig { rate_threshold: 50.0, ..EngineConfig::default() });
+        let mut e = ThreatEngine::new(EngineConfig {
+            rate_threshold: 50.0,
+            ..EngineConfig::default()
+        });
         let pkt = ipv4(17, ATTACKER, VICTIM, &udp(1, 2, b""));
         let d = decode(LinkType::RawIp, &pkt).unwrap();
         for i in 0..60 {
@@ -646,7 +807,10 @@ mod tests {
         assert_eq!(e.threat_level(t0), ThreatLevel::Medium);
 
         // 60 packets spread over a minute is not a spike.
-        let mut e = ThreatEngine::new(EngineConfig { rate_threshold: 50.0, ..EngineConfig::default() });
+        let mut e = ThreatEngine::new(EngineConfig {
+            rate_threshold: 50.0,
+            ..EngineConfig::default()
+        });
         for i in 0..60 {
             e.observe(&d, t0 + Duration::from_secs(i));
         }
@@ -660,7 +824,10 @@ mod tests {
         for port in 1..=30u16 {
             feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::SYN, t0);
         }
-        assert_eq!(e.threat_level(t0 + Duration::from_secs(29)), ThreatLevel::High);
+        assert_eq!(
+            e.threat_level(t0 + Duration::from_secs(29)),
+            ThreatLevel::High
+        );
         let later = t0 + Duration::from_secs(31);
         assert_eq!(e.threat_level(later), ThreatLevel::Low);
         e.expire(t0 + Duration::from_secs(120));
@@ -675,7 +842,14 @@ mod tests {
             feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::SYN, t0);
         }
         for host in 1..=30u8 {
-            feed(&mut e, [192, 0, 2, 9], [10, 0, 1, host], 3389, TcpFlags::SYN, t0);
+            feed(
+                &mut e,
+                [192, 0, 2, 9],
+                [10, 0, 1, host],
+                3389,
+                TcpFlags::SYN,
+                t0,
+            );
         }
         assert_eq!(e.threat_level(t0), ThreatLevel::Critical);
         assert_eq!(e.active_alerts(t0).len(), 2);
@@ -684,12 +858,23 @@ mod tests {
     #[test]
     fn memory_is_bounded_under_spoofed_source_flood() {
         let t0 = Instant::now();
-        let cfg = EngineConfig { max_tracked_hosts: 64, max_attempts_per_source: 32, ..EngineConfig::default() };
+        let cfg = EngineConfig {
+            max_tracked_hosts: 64,
+            max_attempts_per_source: 32,
+            ..EngineConfig::default()
+        };
         let mut e = ThreatEngine::new(cfg);
         // 20k distinct spoofed sources and 20k distinct targets.
         for i in 0..20_000u32 {
             let b = i.to_be_bytes();
-            feed(&mut e, [11, b[1], b[2], b[3]], [12, b[1], b[2], b[3]], 80, TcpFlags::SYN, t0);
+            feed(
+                &mut e,
+                [11, b[1], b[2], b[3]],
+                [12, b[1], b[2], b[3]],
+                80,
+                TcpFlags::SYN,
+                t0,
+            );
         }
         assert!(e.tracked_hosts() <= 128, "tracked {}", e.tracked_hosts());
         // One source hammering many ports keeps a bounded attempt history.
@@ -709,10 +894,20 @@ mod tests {
         let mut e = ThreatEngine::default();
         for round in 0..5u64 {
             for port in 1..=19u16 {
-                feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::SYN, t0 + Duration::from_secs(round));
+                feed(
+                    &mut e,
+                    ATTACKER,
+                    VICTIM,
+                    port,
+                    TcpFlags::SYN,
+                    t0 + Duration::from_secs(round),
+                );
             }
         }
-        assert!(e.active_alerts(t0 + Duration::from_secs(5)).is_empty(), "19 distinct ports, however often");
+        assert!(
+            e.active_alerts(t0 + Duration::from_secs(5)).is_empty(),
+            "19 distinct ports, however often"
+        );
         let state = &e.sources[&ip(ATTACKER)];
         assert_eq!(state.ports_per_host[&ip(VICTIM)], 19);
         assert_eq!(state.hosts_per_port[&1], 1);
@@ -723,7 +918,11 @@ mod tests {
             feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::SYN, later);
         }
         let state = &e.sources[&ip(ATTACKER)];
-        assert_eq!(state.ports_per_host[&ip(VICTIM)], 19, "old ports no longer counted");
+        assert_eq!(
+            state.ports_per_host[&ip(VICTIM)],
+            19,
+            "old ports no longer counted"
+        );
         assert_eq!(state.attempts.len(), 19);
         assert_eq!(state.pairs.len(), 19);
         assert!(e.active_alerts(later).is_empty());
@@ -747,17 +946,38 @@ mod tests {
             feed(&mut e, ATTACKER, VICTIM, port, TcpFlags::SYN, t0);
         }
         assert_eq!(e.revision(), 1, "refreshing an alert is not a new alert");
-        assert_eq!(e.active_alerts(t0)[0].detail, "60 ports in 60s", "evidence still updates");
+        assert_eq!(
+            e.active_alerts(t0)[0].detail,
+            "60 ports in 60s",
+            "evidence still updates"
+        );
     }
 
     #[test]
     fn eviction_drops_the_least_recently_seen_host() {
         let t0 = Instant::now();
-        let cfg = EngineConfig { max_tracked_hosts: 2, ..EngineConfig::default() };
+        let cfg = EngineConfig {
+            max_tracked_hosts: 2,
+            ..EngineConfig::default()
+        };
         let mut e = ThreatEngine::new(cfg);
         feed(&mut e, [1, 1, 1, 1], VICTIM, 80, TcpFlags::SYN, t0);
-        feed(&mut e, [2, 2, 2, 2], VICTIM, 80, TcpFlags::SYN, t0 + Duration::from_secs(1));
-        feed(&mut e, [3, 3, 3, 3], VICTIM, 80, TcpFlags::SYN, t0 + Duration::from_secs(2));
+        feed(
+            &mut e,
+            [2, 2, 2, 2],
+            VICTIM,
+            80,
+            TcpFlags::SYN,
+            t0 + Duration::from_secs(1),
+        );
+        feed(
+            &mut e,
+            [3, 3, 3, 3],
+            VICTIM,
+            80,
+            TcpFlags::SYN,
+            t0 + Duration::from_secs(2),
+        );
         assert!(!e.sources.contains_key(&ip([1, 1, 1, 1])));
         assert!(e.sources.contains_key(&ip([2, 2, 2, 2])));
         assert!(e.sources.contains_key(&ip([3, 3, 3, 3])));

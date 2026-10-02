@@ -2,43 +2,40 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 // Character sets copied from matrix_rain module
-const ASCII_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()[]{}|\\/<>?+=~`";
+const ASCII_CHARS: &str =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()[]{}|\\/<>?+=~`";
 const KATAKANA_CHARS: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ";
 const SYMBOLS_CHARS: &str = "☆★○●◎◇◆□■△▲▽▼※〒→←↑↓〓∈∋⊆⊇⊂⊃∪∩∧∨¬⇒⇔∀∃∠⊥⌒∂∇≡≒≪≫√∽∝∵∫∬";
 const BINARY_CHARS: &str = "01";
 const HEX_CHARS: &str = "0123456789ABCDEF";
 
 // Lookup tables for character sets to avoid repeated string parsing
-static ASCII_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| {
-    ASCII_CHARS.chars().collect()
-});
+static ASCII_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| ASCII_CHARS.chars().collect());
 
-static KATAKANA_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| {
-    KATAKANA_CHARS.chars().collect()
-});
+static KATAKANA_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| KATAKANA_CHARS.chars().collect());
 
-static SYMBOLS_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| {
-    SYMBOLS_CHARS.chars().collect()
-});
+static SYMBOLS_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| SYMBOLS_CHARS.chars().collect());
 
-static BINARY_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| {
-    BINARY_CHARS.chars().collect()
-});
+static BINARY_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| BINARY_CHARS.chars().collect());
 
-static HEX_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| {
-    HEX_CHARS.chars().collect()
-});
+static HEX_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| HEX_CHARS.chars().collect());
 
 static MIXED_CHARS_VEC: Lazy<Vec<char>> = Lazy::new(|| {
-    let all_chars = format!("{}{}{}{}", ASCII_CHARS, KATAKANA_CHARS, SYMBOLS_CHARS, BINARY_CHARS);
+    let all_chars = format!(
+        "{}{}{}{}",
+        ASCII_CHARS, KATAKANA_CHARS, SYMBOLS_CHARS, BINARY_CHARS
+    );
     all_chars.chars().collect()
 });
 
 // Optimized random character generation using lookup tables
 #[inline]
-pub fn random_matrix_char_optimized(rng: &mut impl rand::Rng, char_set: super::matrix_rain::CharacterSet) -> char {
+pub fn random_matrix_char_optimized(
+    rng: &mut impl rand::Rng,
+    char_set: super::matrix_rain::CharacterSet,
+) -> char {
     use super::matrix_rain::CharacterSet;
-    
+
     let chars = match char_set {
         CharacterSet::ASCII => &*ASCII_CHARS_VEC,
         CharacterSet::Katakana => &*KATAKANA_CHARS_VEC,
@@ -47,7 +44,7 @@ pub fn random_matrix_char_optimized(rng: &mut impl rand::Rng, char_set: super::m
         CharacterSet::Hex => &*HEX_CHARS_VEC,
         CharacterSet::Mixed => &*MIXED_CHARS_VEC,
     };
-    
+
     // Bounds-checked: the check is negligible next to the RNG call, and this
     // crate has no need for `unsafe`.
     match chars.len() {
@@ -74,8 +71,14 @@ impl<'a> PacketRef<'a> {
             data: self.data.to_vec(),
             length: self.length,
             timestamp: self.timestamp,
-            src_ip: format!("{}.{}.{}.{}", self.src_ip[0], self.src_ip[1], self.src_ip[2], self.src_ip[3]),
-            dst_ip: format!("{}.{}.{}.{}", self.dst_ip[0], self.dst_ip[1], self.dst_ip[2], self.dst_ip[3]),
+            src_ip: format!(
+                "{}.{}.{}.{}",
+                self.src_ip[0], self.src_ip[1], self.src_ip[2], self.src_ip[3]
+            ),
+            dst_ip: format!(
+                "{}.{}.{}.{}",
+                self.dst_ip[0], self.dst_ip[1], self.dst_ip[2], self.dst_ip[3]
+            ),
         }
     }
 }
@@ -86,14 +89,17 @@ pub fn parse_packet_zero_alloc(data: &[u8]) -> Result<PacketRef<'_>, Box<dyn std
     if data.is_empty() {
         return Err("Empty packet data".into());
     }
-    
+
     let (src_ip, dst_ip) = if data.len() >= 20 && (data[0] >> 4) == 4 {
         // IPv4 packet - IPs are at bytes 12-15 (source) and 16-19 (destination)
-        ([data[12], data[13], data[14], data[15]], [data[16], data[17], data[18], data[19]])
+        (
+            [data[12], data[13], data[14], data[15]],
+            [data[16], data[17], data[18], data[19]],
+        )
     } else {
         ([0, 0, 0, 0], [0, 0, 0, 0])
     };
-    
+
     Ok(PacketRef {
         data,
         length: 60,
@@ -111,28 +117,39 @@ pub fn parse_packet_optimized(data: &[u8]) -> Result<super::Packet, Box<dyn std:
 
 // Most optimized version - reuse Vec allocation
 #[inline(always)]
-pub fn parse_packet_ultra_optimized(data: &[u8], reuse_vec: &mut Vec<u8>) -> Result<super::Packet, Box<dyn std::error::Error>> {
+pub fn parse_packet_ultra_optimized(
+    data: &[u8],
+    reuse_vec: &mut Vec<u8>,
+) -> Result<super::Packet, Box<dyn std::error::Error>> {
     if data.is_empty() {
         return Err("Empty packet data".into());
     }
-    
+
     // Reuse the provided Vec instead of allocating new one
     reuse_vec.clear();
     reuse_vec.extend_from_slice(data);
-    
+
     // Use small string optimization for IP addresses
     let (src_ip, dst_ip) = if data.len() >= 20 && (data[0] >> 4) == 4 {
         // Pre-allocate with exact capacity
         let mut src = String::with_capacity(15);
         let mut dst = String::with_capacity(15);
         use std::fmt::Write;
-        let _ = write!(&mut src, "{}.{}.{}.{}", data[12], data[13], data[14], data[15]);
-        let _ = write!(&mut dst, "{}.{}.{}.{}", data[16], data[17], data[18], data[19]);
+        let _ = write!(
+            &mut src,
+            "{}.{}.{}.{}",
+            data[12], data[13], data[14], data[15]
+        );
+        let _ = write!(
+            &mut dst,
+            "{}.{}.{}.{}",
+            data[16], data[17], data[18], data[19]
+        );
         (src, dst)
     } else {
         (DEFAULT_IP.to_string(), DEFAULT_IP.to_string())
     };
-    
+
     Ok(super::Packet {
         data: std::mem::take(reuse_vec),
         length: 60,
@@ -160,7 +177,7 @@ impl MatrixCharPool {
             pool: Vec::with_capacity(capacity),
         }
     }
-    
+
     #[inline]
     pub fn acquire(&mut self, value: char, y: f32) -> super::matrix_rain::MatrixChar {
         if let Some(mut char) = self.pool.pop() {
@@ -191,7 +208,7 @@ impl MatrixCharPool {
             }
         }
     }
-    
+
     #[inline]
     pub fn release(&mut self, char: super::matrix_rain::MatrixChar) {
         if self.pool.len() < self.pool.capacity() {
@@ -213,17 +230,23 @@ impl ProtocolCache {
             capacity,
         }
     }
-    
+
     #[inline]
-    pub fn get_or_classify<F>(&mut self, packet: &super::Packet, classify_fn: F) -> super::Protocol 
+    pub fn get_or_classify<F>(&mut self, packet: &super::Packet, classify_fn: F) -> super::Protocol
     where
         F: FnOnce(&super::Packet) -> super::Protocol,
     {
         // Simple hash of first 8 bytes for cache key
         let key = if packet.data.len() >= 8 {
             u64::from_ne_bytes([
-                packet.data[0], packet.data[1], packet.data[2], packet.data[3],
-                packet.data[4], packet.data[5], packet.data[6], packet.data[7],
+                packet.data[0],
+                packet.data[1],
+                packet.data[2],
+                packet.data[3],
+                packet.data[4],
+                packet.data[5],
+                packet.data[6],
+                packet.data[7],
             ])
         } else {
             let mut bytes = [0u8; 8];
@@ -232,20 +255,20 @@ impl ProtocolCache {
             }
             u64::from_ne_bytes(bytes)
         };
-        
+
         if let Some(&protocol) = self.cache.get(&key) {
             return protocol;
         }
-        
+
         let protocol = classify_fn(packet);
-        
+
         // Evict random entry if at capacity
         if self.cache.len() >= self.capacity {
             if let Some(&k) = self.cache.keys().next() {
                 self.cache.remove(&k);
             }
         }
-        
+
         self.cache.insert(key, protocol);
         protocol
     }

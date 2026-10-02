@@ -3,7 +3,6 @@
 //! Used by the test suite, the fixture generator and anyone who wants to
 //! feed the pipeline without a network. Nothing here touches a socket.
 
-
 pub fn ipv4(proto: u8, src: [u8; 4], dst: [u8; 4], l4: &[u8]) -> Vec<u8> {
     let total = (20 + l4.len()) as u16;
     let mut p = vec![0x45, 0x00];
@@ -56,13 +55,32 @@ pub fn ipv6(next: u8, src: [u8; 16], dst: [u8; 16], body: &[u8]) -> Vec<u8> {
 }
 
 /// An IPv4/TCP packet inside an Ethernet frame.
-pub fn eth_tcp(src: [u8; 4], dst: [u8; 4], src_port: u16, dst_port: u16, flags: u8, payload: &[u8]) -> Vec<u8> {
-    ethernet(0x0800, &ipv4(6, src, dst, &tcp(src_port, dst_port, flags, payload)))
+pub fn eth_tcp(
+    src: [u8; 4],
+    dst: [u8; 4],
+    src_port: u16,
+    dst_port: u16,
+    flags: u8,
+    payload: &[u8],
+) -> Vec<u8> {
+    ethernet(
+        0x0800,
+        &ipv4(6, src, dst, &tcp(src_port, dst_port, flags, payload)),
+    )
 }
 
 /// An IPv4/UDP packet inside an Ethernet frame.
-pub fn eth_udp(src: [u8; 4], dst: [u8; 4], src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
-    ethernet(0x0800, &ipv4(17, src, dst, &udp(src_port, dst_port, payload)))
+pub fn eth_udp(
+    src: [u8; 4],
+    dst: [u8; 4],
+    src_port: u16,
+    dst_port: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    ethernet(
+        0x0800,
+        &ipv4(17, src, dst, &udp(src_port, dst_port, payload)),
+    )
 }
 
 /// A DNS query message for `name` (A record, recursion desired).

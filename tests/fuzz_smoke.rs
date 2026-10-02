@@ -19,7 +19,8 @@ use netrain::pcapfile::{PcapReader, PcapWriter};
 use netrain::replay::{analyze_pcap, ReplayAnalyzer};
 use netrain::state::AppState;
 use netrain::synth::{
-    client_hello, dns_query, dns_response, eth_tcp, eth_udp, ethernet, ipv4, ipv6, tcp, udp, with_vlan,
+    client_hello, dns_query, dns_response, eth_tcp, eth_udp, ethernet, ipv4, ipv6, tcp, udp,
+    with_vlan,
 };
 use netrain::{classify, dns, inspect, Packet};
 
@@ -42,8 +43,13 @@ impl Rng {
     }
 }
 
-const LINKS: [LinkType; 5] =
-    [LinkType::Ethernet, LinkType::RawIp, LinkType::Null, LinkType::LinuxSll, LinkType::LinuxSll2];
+const LINKS: [LinkType; 5] = [
+    LinkType::Ethernet,
+    LinkType::RawIp,
+    LinkType::Null,
+    LinkType::LinuxSll,
+    LinkType::LinuxSll2,
+];
 const INTERESTING: [u8; 10] = [0x00, 0x01, 0x04, 0x06, 0x11, 0x3f, 0x40, 0x7f, 0x80, 0xff];
 
 fn seed_packets() -> Vec<Vec<u8>> {
@@ -59,11 +65,30 @@ fn seed_packets() -> Vec<Vec<u8>> {
         eth_tcp(c, s, 50000, 443, TcpFlags::SYN, b""),
         eth_tcp(s, c, 443, 50000, TcpFlags::SYN | TcpFlags::ACK, b""),
         eth_tcp(c, s, 50000, 443, 0x18, &client_hello("www.example.com")),
-        eth_tcp(c, s, 50001, 80, 0x18, b"GET /a HTTP/1.1\r\nHost: example.com:8080\r\nAccept: */*\r\n\r\n"),
+        eth_tcp(
+            c,
+            s,
+            50001,
+            80,
+            0x18,
+            b"GET /a HTTP/1.1\r\nHost: example.com:8080\r\nAccept: */*\r\n\r\n",
+        ),
         eth_tcp(c, s, 50002, 22, 0x18, b"SSH-2.0-OpenSSH_9.6\r\n"),
         eth_udp(c, [9, 9, 9, 9], 40000, 53, &dns_query("www.example.com")),
-        eth_udp([9, 9, 9, 9], c, 53, 40000, &dns_response("www.example.com", &[s.into(), v6.into()])),
-        eth_udp(c, s, 40001, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8]),
+        eth_udp(
+            [9, 9, 9, 9],
+            c,
+            53,
+            40000,
+            &dns_response("www.example.com", &[s.into(), v6.into()]),
+        ),
+        eth_udp(
+            c,
+            s,
+            40001,
+            443,
+            &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8],
+        ),
         eth_udp(c, [224, 0, 0, 251], 5353, 5353, &dns_query("printer.local")),
         with_vlan(&eth_tcp(c, s, 50003, 80, TcpFlags::SYN, b""), 42),
         ethernet(0x86dd, &ipv6(17, v6, v6, &udp(546, 547, b"dhcp"))),
@@ -130,7 +155,10 @@ fn parse_everything(data: &[u8]) {
             assert!(d.payload.len() <= data.len());
             let _ = classify::classify(&d);
             if let Some(insight) = inspect::insight(&d) {
-                assert!(inspect::sanitize_hostname(insight.name.as_bytes()).is_some() || !insight.name.is_empty());
+                assert!(
+                    inspect::sanitize_hostname(insight.name.as_bytes()).is_some()
+                        || !insight.name.is_empty()
+                );
             }
         }
     }
@@ -138,8 +166,15 @@ fn parse_everything(data: &[u8]) {
     let _ = classify::classify_bytes(data);
     let _ = dns::question_name(data);
     let _ = dns::answers(data);
-    for name in [inspect::tls_sni(data), inspect::http_host(data)].into_iter().flatten() {
-        assert!(name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b)), "{name:?}");
+    for name in [inspect::tls_sni(data), inspect::http_host(data)]
+        .into_iter()
+        .flatten()
+    {
+        assert!(
+            name.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b)),
+            "{name:?}"
+        );
     }
     let _ = inspect::is_quic_initial(data);
 
@@ -153,7 +188,13 @@ fn parse_everything(data: &[u8]) {
         let _ = netrain::is_tls_handshake(&packet);
         let _ = netrain::optimized::classify_protocol_optimized(&packet);
     }
-    let empty = Packet { data: Vec::new(), length: 0, timestamp: 0, src_ip: String::new(), dst_ip: String::new() };
+    let empty = Packet {
+        data: Vec::new(),
+        length: 0,
+        timestamp: 0,
+        src_ip: String::new(),
+        dst_ip: String::new(),
+    };
     let _ = netrain::classify_protocol(&empty);
     let _ = netrain::validate_packet(&empty);
 }
@@ -163,7 +204,10 @@ fn hex(data: &[u8]) -> String {
 }
 
 fn iterations(default: usize) -> usize {
-    std::env::var("NETRAIN_FUZZ_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var("NETRAIN_FUZZ_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 #[test]
@@ -205,8 +249,16 @@ fn mutated_traffic_never_panics_the_stateful_pipeline() {
                 3 => ts.saturating_sub(rng.below(10_000_000) as i64),
                 _ => ts.saturating_add(rng.below(2_000_000) as i64),
             };
-            let link = LINKS[if rng.below(4) == 0 { rng.below(LINKS.len()) } else { 0 }];
-            let wire_len = if rng.below(10) == 0 { rng.next() as usize } else { data.len() };
+            let link = LINKS[if rng.below(4) == 0 {
+                rng.below(LINKS.len())
+            } else {
+                0
+            }];
+            let wire_len = if rng.below(10) == 0 {
+                rng.next() as usize
+            } else {
+                data.len()
+            };
 
             sink.submit(link, &data, wire_len);
             analyzer.feed(link, ts, &data, wire_len);
@@ -234,7 +286,8 @@ fn mutated_traffic_never_panics_the_stateful_pipeline() {
     let text = String::from_utf8(json).expect("output is UTF-8");
     assert!(!text.contains('\x1b'), "no escape sequences in output");
     for line in text.lines() {
-        let v: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
+        let v: serde_json::Value =
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
         assert!(v["type"].is_string());
     }
 }
@@ -246,10 +299,24 @@ fn mutated_capture_files_never_panic() {
     for (i, p) in seed_packets().iter().enumerate() {
         writer.packet(1_700_000_000_000_000 + i as i64 * 1000, p);
     }
-    let fixtures = ["normal_traffic", "port_scan", "ddos_attack", "mixed_protocols"].map(|name| {
-        std::fs::read(format!("{}/tests/fixtures/{name}.pcap", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    let fixtures = [
+        "normal_traffic",
+        "port_scan",
+        "ddos_attack",
+        "mixed_protocols",
+    ]
+    .map(|name| {
+        std::fs::read(format!(
+            "{}/tests/fixtures/{name}.pcap",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
     });
-    let mut corpus = vec![writer.finish(), PcapWriter::new(101).finish(), PcapWriter::new(113).finish()];
+    let mut corpus = vec![
+        writer.finish(),
+        PcapWriter::new(101).finish(),
+        PcapWriter::new(113).finish(),
+    ];
     corpus.extend(fixtures);
 
     let mut rng = Rng(0xA076_1D64_78BD_642F);
@@ -266,7 +333,8 @@ fn mutated_capture_files_never_panic() {
                 2 => file.truncate(at),
                 _ => {
                     // Corrupt a 32-bit length or timestamp field.
-                    let v: u32 = [0, 1, 0x7fff_ffff, 0x8000_0000, 0xffff_ffff, 65_536][rng.below(6)];
+                    let v: u32 =
+                        [0, 1, 0x7fff_ffff, 0x8000_0000, 0xffff_ffff, 65_536][rng.below(6)];
                     let end = (at + 4).min(file.len());
                     file[at..end].copy_from_slice(&v.to_le_bytes()[..end - at]);
                 }
@@ -283,6 +351,10 @@ fn mutated_capture_files_never_panic() {
                 let _ = netrain::export::summary_json(&summary, 0);
             }
         }));
-        assert!(outcome.is_ok(), "capture-file handling panicked on iteration {i}; file: {}", hex(&file));
+        assert!(
+            outcome.is_ok(),
+            "capture-file handling panicked on iteration {i}; file: {}",
+            hex(&file)
+        );
     }
 }

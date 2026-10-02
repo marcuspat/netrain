@@ -29,8 +29,21 @@ fn traffic_mix() -> Vec<Vec<u8>> {
         frames.push(eth_tcp(CLIENT, SERVER, port, 443, TcpFlags::ACK, b""));
         if i % 8 == 0 {
             frames.push(eth_tcp(CLIENT, SERVER, port, 443, TcpFlags::SYN, b""));
-            frames.push(eth_tcp(CLIENT, SERVER, port, 443, 0x18, &client_hello("www.example.com")));
-            frames.push(eth_udp(CLIENT, [9, 9, 9, 9], 40000 + i, 53, &dns_query("www.example.com")));
+            frames.push(eth_tcp(
+                CLIENT,
+                SERVER,
+                port,
+                443,
+                0x18,
+                &client_hello("www.example.com"),
+            ));
+            frames.push(eth_udp(
+                CLIENT,
+                [9, 9, 9, 9],
+                40000 + i,
+                53,
+                &dns_query("www.example.com"),
+            ));
         }
     }
     frames
@@ -42,7 +55,14 @@ fn syn_flood(n: u32) -> Vec<Vec<u8>> {
     (0..n)
         .map(|i| {
             let b = i.to_be_bytes();
-            eth_tcp([11, b[1], b[2], b[3]], SERVER, 1024 + (i % 60000) as u16, 80, TcpFlags::SYN, b"")
+            eth_tcp(
+                [11, b[1], b[2], b[3]],
+                SERVER,
+                1024 + (i % 60000) as u16,
+                80,
+                TcpFlags::SYN,
+                b"",
+            )
         })
         .collect()
 }
@@ -155,8 +175,18 @@ fn bench_under_attack(c: &mut Criterion) {
         )
     });
     // One source probing many ports: the per-source history is at its cap.
-    let scan: Vec<Vec<u8>> =
-        (0..20_000u32).map(|i| eth_tcp([203, 0, 113, 7], SERVER, 40000, (i % 60000) as u16, TcpFlags::SYN, b"")).collect();
+    let scan: Vec<Vec<u8>> = (0..20_000u32)
+        .map(|i| {
+            eth_tcp(
+                [203, 0, 113, 7],
+                SERVER,
+                40000,
+                (i % 60000) as u16,
+                TcpFlags::SYN,
+                b"",
+            )
+        })
+        .collect();
     g.bench_function("threat_engine_single_source_scan", |b| {
         b.iter_batched_ref(
             ThreatEngine::default,

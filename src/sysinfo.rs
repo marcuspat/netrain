@@ -36,7 +36,11 @@ mod tests {
         assert_eq!(parse_vm_rss("Name:\tx\n"), None);
         assert_eq!(parse_vm_rss("VmRSS:\tlots kB\n"), None);
         assert_eq!(parse_vm_rss("VmRSS:\t5 MB\n"), None);
-        assert_eq!(parse_vm_rss("VmRSS:\t18446744073709551615 kB\n"), None, "overflow");
+        assert_eq!(
+            parse_vm_rss("VmRSS:\t18446744073709551615 kB\n"),
+            None,
+            "overflow"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -44,6 +48,9 @@ mod tests {
     fn reports_a_plausible_figure_for_this_process() {
         let rss = rss_bytes().expect("Linux exposes VmRSS");
         // A running test binary is certainly between 100 KB and 100 GB.
-        assert!((100 * 1024..100 * 1024 * 1024 * 1024).contains(&rss), "{rss}");
+        assert!(
+            (100 * 1024..100 * 1024 * 1024 * 1024).contains(&rss),
+            "{rss}"
+        );
     }
 }

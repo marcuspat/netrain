@@ -1,12 +1,12 @@
 // Simplified matrix rain effect that actually works properly
 
+use rand::Rng;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
     widgets::Widget,
 };
-use rand::Rng;
 use std::collections::{HashMap, VecDeque};
 
 pub struct SimpleMatrixRain {
@@ -29,19 +29,16 @@ impl Column {
         let mut rng = rand::thread_rng();
         let speed = rng.gen_range(1..4); // Original fast speed
         let length = rng.gen_range(5..20);
-        
+
         // Generate random characters for this column
         let chars: Vec<char> = (0..height + 20)
-            .map(|_| {
-                
-                match rng.gen_range(0..10) {
-                    0..=3 => rng.gen_range(b'0'..=b'9') as char,
-                    4..=6 => rng.gen_range(b'A'..=b'Z') as char,
-                    _ => rng.gen_range(b'a'..=b'z') as char,
-                }
+            .map(|_| match rng.gen_range(0..10) {
+                0..=3 => rng.gen_range(b'0'..=b'9') as char,
+                4..=6 => rng.gen_range(b'A'..=b'Z') as char,
+                _ => rng.gen_range(b'a'..=b'z') as char,
             })
             .collect();
-        
+
         Self {
             head: -(rng.gen_range(0..20)),
             tail: -(length as i16),
@@ -49,14 +46,14 @@ impl Column {
             chars,
         }
     }
-    
+
     fn update(&mut self) {
         if self.speed > 0 {
             self.head += 1;
             self.tail += 1;
         }
     }
-    
+
     fn should_reset(&self, height: u16) -> bool {
         self.tail > height as i16
     }
@@ -66,13 +63,13 @@ impl SimpleMatrixRain {
     pub fn new(width: u16, height: u16) -> Self {
         let mut columns = HashMap::new();
         let mut rng = rand::thread_rng();
-        
+
         // Initialize with some columns
         for _ in 0..width / 3 {
             let x = rng.gen_range(0..width);
             columns.entry(x).or_insert_with(|| Column::new(height));
         }
-        
+
         Self {
             columns,
             width,
@@ -81,11 +78,11 @@ impl SimpleMatrixRain {
             active_ips: VecDeque::new(),
         }
     }
-    
+
     pub fn update(&mut self) {
         self.tick += 1;
         let mut rng = rand::thread_rng();
-        
+
         // Update existing columns - simple and clean
         let mut to_remove = Vec::new();
         for (x, column) in self.columns.iter_mut() {
@@ -100,22 +97,23 @@ impl SimpleMatrixRain {
                 }
             }
         }
-        
+
         // Remove finished columns
         for x in to_remove {
             self.columns.remove(&x);
         }
-        
+
         // Add new columns occasionally
         // A zero-width area (tiny terminal) has nowhere to put a column.
-        if self.width > 0 && rng.gen_bool(0.1) && self.columns.len() < (self.width as usize * 2 / 3) {
+        if self.width > 0 && rng.gen_bool(0.1) && self.columns.len() < (self.width as usize * 2 / 3)
+        {
             let x = rng.gen_range(0..self.width);
             if !self.columns.contains_key(&x) {
                 self.columns.insert(x, Column::new(self.height));
             }
         }
     }
-    
+
     /// Adapt to a new drawing area, dropping columns that no longer fit.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
@@ -138,13 +136,13 @@ impl SimpleMatrixRain {
             self.columns.insert(x, Column::new(self.height));
         }
     }
-    
+
     // Simple IP tracking - rock solid
     pub fn track_ip_packet(&mut self, src_ip: &str, dst_ip: &str, _protocol: &str) {
         // Track IPs simply and reliably
         for ip in [src_ip, dst_ip] {
             let mut found = false;
-            
+
             // Update existing IP count
             for (existing_ip, count) in &mut self.active_ips {
                 if existing_ip == ip {
@@ -153,7 +151,7 @@ impl SimpleMatrixRain {
                     break;
                 }
             }
-            
+
             // Add new IP if not found
             if !found {
                 if self.active_ips.len() < 5 {
@@ -166,13 +164,13 @@ impl SimpleMatrixRain {
                 }
             }
         }
-        
+
         // Sort by activity and keep top 5
         let mut sorted: Vec<_> = self.active_ips.drain(..).collect();
         sorted.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         sorted.truncate(5);
         self.active_ips = sorted.into_iter().collect();
-        
+
         // Just add a random column - keep it simple
         let mut rng = rand::thread_rng();
         let x = rng.gen_range(0..self.width);
@@ -180,7 +178,7 @@ impl SimpleMatrixRain {
             self.add_column(x);
         }
     }
-    
+
     // Get active IPs for display
     pub fn get_active_ips(&self) -> Vec<(String, u32)> {
         self.active_ips.iter().cloned().collect()
@@ -194,21 +192,21 @@ impl Widget for &SimpleMatrixRain {
             if *col_x >= area.width {
                 continue;
             }
-            
+
             for y in 0..area.height {
                 let char_pos = y as i16;
-                
+
                 if char_pos >= column.tail && char_pos <= column.head {
                     let char_idx = (char_pos as usize) % column.chars.len();
                     let ch = column.chars[char_idx];
-                    
+
                     // Simple original colors - no complex effects
                     let color = if char_pos == column.head {
                         Color::White
                     } else {
                         Color::Green
                     };
-                    
+
                     // `cell_mut` is `None` outside the buffer, so a column that
                     // no longer fits after a resize is skipped, never a panic.
                     if let Some(cell) = buf.cell_mut((area.x + col_x, area.y + y)) {

@@ -29,9 +29,17 @@ pub struct FlowKey {
 impl FlowKey {
     pub fn new(ip_proto: u8, a: Endpoint, b: Endpoint) -> Self {
         if a <= b {
-            Self { ip_proto, low: a, high: b }
+            Self {
+                ip_proto,
+                low: a,
+                high: b,
+            }
         } else {
-            Self { ip_proto, low: b, high: a }
+            Self {
+                ip_proto,
+                low: b,
+                high: a,
+            }
         }
     }
 }
@@ -208,7 +216,12 @@ fn evict_oldest<K: Copy + Eq + std::hash::Hash, V>(
 
 impl FlowTable {
     pub fn new(config: FlowConfig) -> Self {
-        Self { config, flows: HashMap::new(), hosts: HashMap::new(), total_flows: 0 }
+        Self {
+            config,
+            flows: HashMap::new(),
+            hosts: HashMap::new(),
+            total_flows: 0,
+        }
     }
 
     /// Account one packet observed at `now`.
@@ -220,7 +233,11 @@ impl FlowTable {
                 let keep = self.config.max_hosts - (self.config.max_hosts / 8).max(1);
                 evict_oldest(&mut self.hosts, keep, |h| h.last_seen);
             }
-            let host = self.hosts.entry(ip).or_insert(HostStats { packets: 0, bytes: 0, last_seen: now });
+            let host = self.hosts.entry(ip).or_insert(HostStats {
+                packets: 0,
+                bytes: 0,
+                last_seen: now,
+            });
             host.packets += 1;
             host.bytes = host.bytes.saturating_add(bytes);
             host.last_seen = now;
@@ -305,10 +322,15 @@ impl FlowTable {
         let (idle, closed) = (self.config.idle_timeout, self.config.closed_timeout);
         self.flows.retain(|_, f| {
             let quiet = now.saturating_duration_since(f.last_seen);
-            let limit = if matches!(f.state, FlowState::Closing | FlowState::Reset) { closed } else { idle };
+            let limit = if matches!(f.state, FlowState::Closing | FlowState::Reset) {
+                closed
+            } else {
+                idle
+            };
             quiet <= limit
         });
-        self.hosts.retain(|_, h| now.saturating_duration_since(h.last_seen) <= idle);
+        self.hosts
+            .retain(|_, h| now.saturating_duration_since(h.last_seen) <= idle);
     }
 
     pub fn len(&self) -> usize {
@@ -336,7 +358,9 @@ impl FlowTable {
     pub fn top_flows(&self, n: usize) -> Vec<&Flow> {
         let mut flows: Vec<&Flow> = self.flows.values().collect();
         flows.sort_by(|a, b| {
-            b.bytes().cmp(&a.bytes()).then_with(|| (a.key.low, a.key.high).cmp(&(b.key.low, b.key.high)))
+            b.bytes()
+                .cmp(&a.bytes())
+                .then_with(|| (a.key.low, a.key.high).cmp(&(b.key.low, b.key.high)))
         });
         flows.truncate(n);
         flows
@@ -344,7 +368,8 @@ impl FlowTable {
 
     /// The `n` hosts that sent or received the most bytes.
     pub fn top_talkers(&self, n: usize) -> Vec<(IpAddr, HostStats)> {
-        let mut hosts: Vec<(IpAddr, HostStats)> = self.hosts.iter().map(|(ip, s)| (*ip, *s)).collect();
+        let mut hosts: Vec<(IpAddr, HostStats)> =
+            self.hosts.iter().map(|(ip, s)| (*ip, *s)).collect();
         hosts.sort_by(|a, b| b.1.bytes.cmp(&a.1.bytes).then_with(|| a.0.cmp(&b.0)));
         hosts.truncate(n);
         hosts
@@ -373,10 +398,30 @@ mod tests {
     fn both_directions_are_one_flow_with_split_counters() {
         let t0 = Instant::now();
         let mut t = FlowTable::default();
-        feed(&mut t, &eth_tcp(C, S, 51000, 443, TcpFlags::SYN, b""), 74, t0);
-        feed(&mut t, &eth_tcp(S, C, 443, 51000, TcpFlags::SYN | TcpFlags::ACK, b""), 74, t0);
-        feed(&mut t, &eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b""), 66, t0);
-        feed(&mut t, &eth_tcp(S, C, 443, 51000, TcpFlags::ACK, &[0x17, 3, 3, 0, 1, 0]), 1500, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 443, TcpFlags::SYN, b""),
+            74,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(S, C, 443, 51000, TcpFlags::SYN | TcpFlags::ACK, b""),
+            74,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b""),
+            66,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(S, C, 443, 51000, TcpFlags::ACK, &[0x17, 3, 3, 0, 1, 0]),
+            1500,
+            t0,
+        );
 
         assert_eq!(t.len(), 1);
         let f = t.top_flows(1)[0];
@@ -386,7 +431,10 @@ mod tests {
         assert_eq!((f.packets_in, f.bytes_in), (2, 1574));
         assert_eq!(f.protocol, Protocol::HTTPS);
         assert_eq!(f.state, FlowState::Established);
-        assert_eq!(f.summary(), "HTTPS 10.0.0.2:51000 -> 93.184.216.34:443 open 1.7 KB");
+        assert_eq!(
+            f.summary(),
+            "HTTPS 10.0.0.2:51000 -> 93.184.216.34:443 open 1.7 KB"
+        );
     }
 
     #[test]
@@ -394,22 +442,57 @@ mod tests {
         let t0 = Instant::now();
         let mut t = FlowTable::default();
         let key = FlowKey::new(6, (C.into(), 51000), (S.into(), 80));
-        feed(&mut t, &eth_tcp(C, S, 51000, 80, TcpFlags::SYN, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 80, TcpFlags::SYN, b""),
+            60,
+            t0,
+        );
         assert_eq!(t.get(&key).unwrap().state, FlowState::Opening);
-        feed(&mut t, &eth_tcp(S, C, 80, 51000, TcpFlags::SYN | TcpFlags::ACK, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(S, C, 80, 51000, TcpFlags::SYN | TcpFlags::ACK, b""),
+            60,
+            t0,
+        );
         assert_eq!(t.get(&key).unwrap().state, FlowState::Established);
-        feed(&mut t, &eth_tcp(C, S, 51000, 80, TcpFlags::FIN | TcpFlags::ACK, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 80, TcpFlags::FIN | TcpFlags::ACK, b""),
+            60,
+            t0,
+        );
         assert_eq!(t.get(&key).unwrap().state, FlowState::Closing);
-        feed(&mut t, &eth_tcp(S, C, 80, 51000, TcpFlags::RST, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(S, C, 80, 51000, TcpFlags::RST, b""),
+            60,
+            t0,
+        );
         assert_eq!(t.get(&key).unwrap().state, FlowState::Reset);
 
         // Joined mid-stream: no handshake seen, so just "active".
-        feed(&mut t, &eth_tcp(C, S, 52000, 80, TcpFlags::ACK, b"x"), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 52000, 80, TcpFlags::ACK, b"x"),
+            60,
+            t0,
+        );
         let mid = FlowKey::new(6, (C.into(), 52000), (S.into(), 80));
         assert_eq!(t.get(&mid).unwrap().state, FlowState::Active);
         // An unanswered SYN stays "opening" however many retries arrive.
-        feed(&mut t, &eth_tcp(C, S, 53000, 81, TcpFlags::SYN, b""), 60, t0);
-        feed(&mut t, &eth_tcp(C, S, 53000, 81, TcpFlags::SYN, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 53000, 81, TcpFlags::SYN, b""),
+            60,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 53000, 81, TcpFlags::SYN, b""),
+            60,
+            t0,
+        );
         let syn = FlowKey::new(6, (C.into(), 53000), (S.into(), 81));
         assert_eq!(t.get(&syn).unwrap().state, FlowState::Opening);
     }
@@ -420,10 +503,25 @@ mod tests {
         let mut t = FlowTable::default();
         // Port 8080 with no payload is plain TCP; the request reveals HTTP;
         // later bare ACKs must not downgrade it.
-        feed(&mut t, &eth_tcp(C, S, 51000, 8080, TcpFlags::SYN, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 8080, TcpFlags::SYN, b""),
+            60,
+            t0,
+        );
         assert_eq!(t.top_flows(1)[0].protocol, Protocol::TCP);
-        feed(&mut t, &eth_tcp(C, S, 51000, 8080, TcpFlags::ACK, b"GET / HTTP/1.1\r\n"), 90, t0);
-        feed(&mut t, &eth_tcp(S, C, 8080, 51000, TcpFlags::ACK, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 8080, TcpFlags::ACK, b"GET / HTTP/1.1\r\n"),
+            90,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(S, C, 8080, 51000, TcpFlags::ACK, b""),
+            60,
+            t0,
+        );
         assert_eq!(t.top_flows(1)[0].protocol, Protocol::HTTP);
     }
 
@@ -431,29 +529,75 @@ mod tests {
     fn distinct_tuples_are_distinct_flows() {
         let t0 = Instant::now();
         let mut t = FlowTable::default();
-        feed(&mut t, &eth_tcp(C, S, 51000, 443, TcpFlags::SYN, b""), 60, t0);
-        feed(&mut t, &eth_tcp(C, S, 51001, 443, TcpFlags::SYN, b""), 60, t0); // other source port
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 443, TcpFlags::SYN, b""),
+            60,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51001, 443, TcpFlags::SYN, b""),
+            60,
+            t0,
+        ); // other source port
         feed(&mut t, &eth_udp(C, S, 51000, 443, b"q"), 60, t0); // same ports, UDP
-        feed(&mut t, &ethernet(0x0800, &ipv4(1, C, S, &[8, 0, 0, 0])), 60, t0); // ICMP, no ports
-        let v6 = ethernet(0x86dd, &ipv6(6, [1; 16], [2; 16], &tcp(51000, 443, TcpFlags::SYN, b"")));
+        feed(
+            &mut t,
+            &ethernet(0x0800, &ipv4(1, C, S, &[8, 0, 0, 0])),
+            60,
+            t0,
+        ); // ICMP, no ports
+        let v6 = ethernet(
+            0x86dd,
+            &ipv6(6, [1; 16], [2; 16], &tcp(51000, 443, TcpFlags::SYN, b"")),
+        );
         feed(&mut t, &v6, 80, t0);
         assert_eq!(t.len(), 5);
         assert_eq!(t.total_flows(), 5);
-        let icmp = t.top_flows(10).into_iter().find(|f| f.key.ip_proto == 1).unwrap();
+        let icmp = t
+            .top_flows(10)
+            .into_iter()
+            .find(|f| f.key.ip_proto == 1)
+            .unwrap();
         assert_eq!(icmp.summary(), "ICMP 10.0.0.2 -> 93.184.216.34 active 60 B");
-        let six = t.top_flows(10).into_iter().find(|f| f.initiator.0.is_ipv6()).unwrap();
-        assert!(six.summary().contains("[101:101:101:101:101:101:101:101]:51000"), "{}", six.summary());
+        let six = t
+            .top_flows(10)
+            .into_iter()
+            .find(|f| f.initiator.0.is_ipv6())
+            .unwrap();
+        assert!(
+            six.summary()
+                .contains("[101:101:101:101:101:101:101:101]:51000"),
+            "{}",
+            six.summary()
+        );
     }
 
     #[test]
     fn top_talkers_and_flows_rank_by_bytes() {
         let t0 = Instant::now();
         let mut t = FlowTable::default();
-        feed(&mut t, &eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b""), 5000, t0);
-        feed(&mut t, &eth_tcp([10, 0, 0, 3], S, 51000, 443, TcpFlags::ACK, b""), 100, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b""),
+            5000,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp([10, 0, 0, 3], S, 51000, 443, TcpFlags::ACK, b""),
+            100,
+            t0,
+        );
         for _ in 0..50 {
             // Many small packets must not outrank one big transfer.
-            feed(&mut t, &eth_udp([10, 0, 0, 4], [8, 8, 8, 8], 5353, 53, b""), 60, t0);
+            feed(
+                &mut t,
+                &eth_udp([10, 0, 0, 4], [8, 8, 8, 8], 5353, 53, b""),
+                60,
+                t0,
+            );
         }
         let talkers = t.top_talkers(3);
         let ips: Vec<String> = talkers.iter().map(|(ip, _)| ip.to_string()).collect();
@@ -472,8 +616,18 @@ mod tests {
     fn idle_and_closed_flows_expire_on_their_own_timeouts() {
         let t0 = Instant::now();
         let mut t = FlowTable::default();
-        feed(&mut t, &eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b""), 60, t0);
-        feed(&mut t, &eth_tcp(C, S, 51001, 443, TcpFlags::RST, b""), 60, t0);
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b""),
+            60,
+            t0,
+        );
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 51001, 443, TcpFlags::RST, b""),
+            60,
+            t0,
+        );
         t.expire(t0 + Duration::from_secs(6));
         assert_eq!(t.len(), 1, "the reset flow goes after 5s");
         assert_eq!(t.host_count(), 2);
@@ -486,20 +640,35 @@ mod tests {
     #[test]
     fn tables_stay_bounded_under_a_flood_of_new_flows() {
         let t0 = Instant::now();
-        let cfg = FlowConfig { max_flows: 64, max_hosts: 32, ..FlowConfig::default() };
+        let cfg = FlowConfig {
+            max_flows: 64,
+            max_hosts: 32,
+            ..FlowConfig::default()
+        };
         let mut t = FlowTable::new(cfg);
         // Keep one long-lived flow busy throughout.
         let keeper = eth_tcp(C, S, 51000, 443, TcpFlags::ACK, b"");
         for i in 0..5000u32 {
             let now = t0 + Duration::from_millis(u64::from(i));
             let b = i.to_be_bytes();
-            let spoofed = eth_tcp([11, b[1], b[2], b[3]], S, 1000 + (i % 60000) as u16, 80, TcpFlags::SYN, b"");
+            let spoofed = eth_tcp(
+                [11, b[1], b[2], b[3]],
+                S,
+                1000 + (i % 60000) as u16,
+                80,
+                TcpFlags::SYN,
+                b"",
+            );
             feed(&mut t, &spoofed, 60, now);
             feed(&mut t, &keeper, 60, now);
             assert!(t.len() <= 64 && t.host_count() <= 32);
         }
         let key = FlowKey::new(6, (C.into(), 51000), (S.into(), 443));
-        assert_eq!(t.get(&key).unwrap().packets(), 5000, "the active flow is never evicted");
+        assert_eq!(
+            t.get(&key).unwrap().packets(),
+            5000,
+            "the active flow is never evicted"
+        );
         assert_eq!(t.total_flows(), 5001);
     }
 

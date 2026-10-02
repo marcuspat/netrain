@@ -7,7 +7,15 @@ use crate::decode::{Decoded, Transport};
 use crate::Protocol;
 
 const HTTP_PREFIXES: [&[u8]; 10] = [
-    b"GET ", b"POST ", b"PUT ", b"DELETE ", b"HEAD ", b"OPTIONS ", b"PATCH ", b"CONNECT ", b"TRACE ",
+    b"GET ",
+    b"POST ",
+    b"PUT ",
+    b"DELETE ",
+    b"HEAD ",
+    b"OPTIONS ",
+    b"PATCH ",
+    b"CONNECT ",
+    b"TRACE ",
     b"HTTP/",
 ];
 
@@ -36,7 +44,9 @@ pub fn is_tls_record(payload: &[u8]) -> bool {
 /// Classify a decoded packet.
 pub fn classify(decoded: &Decoded<'_>) -> Protocol {
     match decoded.transport {
-        Transport::Tcp { src_port, dst_port, .. } => {
+        Transport::Tcp {
+            src_port, dst_port, ..
+        } => {
             if let Some(p) = classify_payload(decoded.payload) {
                 return p;
             }
@@ -52,7 +62,9 @@ pub fn classify(decoded: &Decoded<'_>) -> Protocol {
             if let Some(p) = udp_service(src_port).or_else(|| udp_service(dst_port)) {
                 return p;
             }
-            if (src_port == 443 || dst_port == 443) && crate::inspect::is_quic_initial(decoded.payload) {
+            if (src_port == 443 || dst_port == 443)
+                && crate::inspect::is_quic_initial(decoded.payload)
+            {
                 return Protocol::QUIC;
             }
             Protocol::UDP
@@ -119,11 +131,23 @@ mod tests {
 
     #[test]
     fn payload_signature_beats_port() {
-        assert_eq!(class_tcp(50000, 8080, b"GET /x HTTP/1.1\r\n"), Protocol::HTTP);
-        assert_eq!(class_tcp(50000, 2222, b"SSH-2.0-OpenSSH_9.6\r\n"), Protocol::SSH);
-        assert_eq!(class_tcp(50000, 8443, &[0x16, 0x03, 0x01, 0x02, 0x00]), Protocol::HTTPS);
+        assert_eq!(
+            class_tcp(50000, 8080, b"GET /x HTTP/1.1\r\n"),
+            Protocol::HTTP
+        );
+        assert_eq!(
+            class_tcp(50000, 2222, b"SSH-2.0-OpenSSH_9.6\r\n"),
+            Protocol::SSH
+        );
+        assert_eq!(
+            class_tcp(50000, 8443, &[0x16, 0x03, 0x01, 0x02, 0x00]),
+            Protocol::HTTPS
+        );
         // plain HTTP spoken on 443 is HTTP, not HTTPS
-        assert_eq!(class_tcp(50000, 443, b"HEAD / HTTP/1.1\r\n"), Protocol::HTTP);
+        assert_eq!(
+            class_tcp(50000, 443, b"HEAD / HTTP/1.1\r\n"),
+            Protocol::HTTP
+        );
     }
 
     #[test]
@@ -137,18 +161,33 @@ mod tests {
 
     #[test]
     fn tls_application_data_is_https_but_random_bytes_are_not() {
-        assert_eq!(class_tcp(50000, 9999, &[0x17, 0x03, 0x03, 0x00, 0x20, 1, 2, 3]), Protocol::HTTPS);
+        assert_eq!(
+            class_tcp(50000, 9999, &[0x17, 0x03, 0x03, 0x00, 0x20, 1, 2, 3]),
+            Protocol::HTTPS
+        );
         assert_eq!(class_tcp(50000, 9999, &[0x16, 0x99, 0x01]), Protocol::TCP);
     }
 
     #[test]
     fn udp_and_ipv6() {
         let pkt = ipv4(17, A, B, &udp(40000, 53, b"\0\0"));
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::DNS);
+        assert_eq!(
+            classify(&decode(LinkType::RawIp, &pkt).unwrap()),
+            Protocol::DNS
+        );
         let pkt = ipv4(17, A, B, &udp(40000, 9999, b""));
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::UDP);
-        let pkt = ethernet(0x86dd, &ipv6(6, [1; 16], [2; 16], &tcp(50000, 443, TcpFlags::SYN, b"")));
-        assert_eq!(classify(&decode(LinkType::Ethernet, &pkt).unwrap()), Protocol::HTTPS);
+        assert_eq!(
+            classify(&decode(LinkType::RawIp, &pkt).unwrap()),
+            Protocol::UDP
+        );
+        let pkt = ethernet(
+            0x86dd,
+            &ipv6(6, [1; 16], [2; 16], &tcp(50000, 443, TcpFlags::SYN, b"")),
+        );
+        assert_eq!(
+            classify(&decode(LinkType::Ethernet, &pkt).unwrap()),
+            Protocol::HTTPS
+        );
     }
 
     #[test]
@@ -161,29 +200,53 @@ mod tests {
         assert_eq!(udp_class(68, 67, b""), Protocol::DHCP);
         assert_eq!(udp_class(546, 547, b""), Protocol::DHCP);
         assert_eq!(udp_class(5353, 5353, b""), Protocol::MDNS);
-        assert_eq!(udp_class(50000, 1900, b"M-SEARCH * HTTP/1.1\r\n"), Protocol::SSDP);
+        assert_eq!(
+            udp_class(50000, 1900, b"M-SEARCH * HTTP/1.1\r\n"),
+            Protocol::SSDP
+        );
         // The reply comes *from* the service port.
         assert_eq!(udp_class(123, 40000, b""), Protocol::NTP);
 
         // QUIC connection setup on UDP 443; other UDP on 443 is just UDP.
-        assert_eq!(udp_class(40000, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]), Protocol::QUIC);
-        assert_eq!(udp_class(40000, 443, &[0x40, 1, 2, 3, 4, 5, 6, 7, 8]), Protocol::UDP);
-        assert_eq!(udp_class(40000, 8443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]), Protocol::UDP);
+        assert_eq!(
+            udp_class(40000, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]),
+            Protocol::QUIC
+        );
+        assert_eq!(
+            udp_class(40000, 443, &[0x40, 1, 2, 3, 4, 5, 6, 7, 8]),
+            Protocol::UDP
+        );
+        assert_eq!(
+            udp_class(40000, 8443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]),
+            Protocol::UDP
+        );
 
         let pkt = ipv4(1, A, B, &[8, 0, 0, 0]);
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::ICMP);
+        assert_eq!(
+            classify(&decode(LinkType::RawIp, &pkt).unwrap()),
+            Protocol::ICMP
+        );
         let pkt = ipv6(58, [1; 16], [2; 16], &[135, 0, 0, 0]);
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::ICMP);
+        assert_eq!(
+            classify(&decode(LinkType::RawIp, &pkt).unwrap()),
+            Protocol::ICMP
+        );
         // GRE has no label of its own.
         let pkt = ipv4(47, A, B, &[0; 8]);
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::Unknown);
+        assert_eq!(
+            classify(&decode(LinkType::RawIp, &pkt).unwrap()),
+            Protocol::Unknown
+        );
     }
 
     #[test]
     fn classify_bytes_handles_every_legacy_shape() {
         assert_eq!(classify_bytes(&[]), Protocol::Unknown);
         assert_eq!(classify_bytes(b"GET / HTTP/1.1\r\n"), Protocol::HTTP);
-        assert_eq!(classify_bytes(&[0x45, 0, 0, 0x3c, 0, 0, 0x40, 0, 0x40, 0x11]), Protocol::UDP);
+        assert_eq!(
+            classify_bytes(&[0x45, 0, 0, 0x3c, 0, 0, 0x40, 0, 0x40, 0x11]),
+            Protocol::UDP
+        );
         let raw = ipv4(6, A, B, &tcp(1, 22, 0x10, b""));
         assert_eq!(classify_bytes(&raw), Protocol::SSH);
         assert_eq!(classify_bytes(&ethernet(0x0800, &raw)), Protocol::SSH);

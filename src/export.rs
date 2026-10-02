@@ -112,11 +112,18 @@ fn severity_label(severity: Severity) -> &'static str {
 
 /// Compact TCP flag string in the conventional order, e.g. `S`, `SA`, `FPA`.
 pub fn tcp_flag_string(flags: u8) -> String {
-    [(0x02, 'S'), (0x01, 'F'), (0x04, 'R'), (0x08, 'P'), (0x10, 'A'), (0x20, 'U')]
-        .iter()
-        .filter(|(bit, _)| flags & bit != 0)
-        .map(|(_, c)| *c)
-        .collect()
+    [
+        (0x02, 'S'),
+        (0x01, 'F'),
+        (0x04, 'R'),
+        (0x08, 'P'),
+        (0x10, 'A'),
+        (0x20, 'U'),
+    ]
+    .iter()
+    .filter(|(bit, _)| flags & bit != 0)
+    .map(|(_, c)| *c)
+    .collect()
 }
 
 /// The JSON summary object for a capture, as one line without a newline.
@@ -136,7 +143,11 @@ pub fn summary_json(summary: &ReplaySummary, dropped: u64) -> String {
         top_talkers: summary
             .top_talkers
             .iter()
-            .map(|(address, bytes, packets)| TalkerJson { address: *address, bytes: *bytes, packets: *packets })
+            .map(|(address, bytes, packets)| TalkerJson {
+                address: *address,
+                bytes: *bytes,
+                packets: *packets,
+            })
             .collect(),
         dropped,
     };
@@ -156,7 +167,12 @@ pub struct Exporter<W: Write> {
 
 impl<W: Write> Exporter<W> {
     pub fn new(out: W, format: Format, alerts_only: bool) -> Self {
-        Self { out, format, alerts_only, analyzer: ReplayAnalyzer::default() }
+        Self {
+            out,
+            format,
+            alerts_only,
+            analyzer: ReplayAnalyzer::default(),
+        }
     }
 
     /// Packets decoded so far.
@@ -165,7 +181,13 @@ impl<W: Write> Exporter<W> {
     }
 
     /// Analyse one packet and write the lines it produces.
-    pub fn feed(&mut self, link: LinkType, ts_micros: i64, data: &[u8], wire_len: usize) -> io::Result<()> {
+    pub fn feed(
+        &mut self,
+        link: LinkType,
+        ts_micros: i64,
+        data: &[u8],
+        wire_len: usize,
+    ) -> io::Result<()> {
         let Some(observation) = self.analyzer.feed(link, ts_micros, data, wire_len) else {
             return Ok(());
         };
@@ -202,10 +224,10 @@ impl<W: Write> Exporter<W> {
                     ip_proto: event.ip_proto,
                     length: event.wire_len,
                     tcp_flags,
-                    host: observation
-                        .insight
-                        .as_ref()
-                        .map(|i| HostJson { source: i.source.tag(), name: &i.name }),
+                    host: observation.insight.as_ref().map(|i| HostJson {
+                        source: i.source.tag(),
+                        name: &i.name,
+                    }),
                 };
                 serde_json::to_writer(&mut self.out, &line)?;
                 self.out.write_all(b"\n")
@@ -235,7 +257,13 @@ impl<W: Write> Exporter<W> {
         }
     }
 
-    fn write_alert(&mut self, ts: f64, ts_us: i64, state: &'static str, alert: &Alert) -> io::Result<()> {
+    fn write_alert(
+        &mut self,
+        ts: f64,
+        ts_us: i64,
+        state: &'static str,
+        alert: &Alert,
+    ) -> io::Result<()> {
         match self.format {
             Format::Json => {
                 let line = AlertJson {
@@ -253,7 +281,11 @@ impl<W: Write> Exporter<W> {
                 self.out.write_all(b"\n")
             }
             Format::Text => {
-                let tag = if state == "raised" { "ALERT" } else { "CLEARED" };
+                let tag = if state == "raised" {
+                    "ALERT"
+                } else {
+                    "CLEARED"
+                };
                 writeln!(self.out, "{ts:.6} {tag} {}", alert.summary())
             }
         }
@@ -296,10 +328,16 @@ mod tests {
         let mut out = Vec::new();
         let mut exporter = Exporter::new(&mut out, format, alerts_only);
         for (ts, frame) in packets {
-            exporter.feed(LinkType::Ethernet, *ts, frame, frame.len()).unwrap();
+            exporter
+                .feed(LinkType::Ethernet, *ts, frame, frame.len())
+                .unwrap();
         }
         exporter.finish(0).unwrap();
-        String::from_utf8(out).unwrap().lines().map(str::to_string).collect()
+        String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn scan() -> Vec<(i64, Vec<u8>)> {
@@ -307,7 +345,14 @@ mod tests {
             .map(|port| {
                 (
                     T0 + i64::from(port) * 1000,
-                    eth_tcp([203, 0, 113, 7], [10, 0, 0, 1], 40000, port, TcpFlags::SYN, b""),
+                    eth_tcp(
+                        [203, 0, 113, 7],
+                        [10, 0, 0, 1],
+                        40000,
+                        port,
+                        TcpFlags::SYN,
+                        b"",
+                    ),
                 )
             })
             .collect()
@@ -318,7 +363,11 @@ mod tests {
         let mut packets = scan();
         packets.push((T0 + 50_000, ethernet(0x0806, &[0; 28]))); // skipped silently
         let lines = run(Format::Json, false, &packets);
-        assert_eq!(lines.len(), 25 + 1 + 1, "25 packets, one alert, one summary");
+        assert_eq!(
+            lines.len(),
+            25 + 1 + 1,
+            "25 packets, one alert, one summary"
+        );
         for line in &lines {
             let v: Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
             assert!(v["type"].is_string(), "{line}");
@@ -327,8 +376,21 @@ mod tests {
 
     #[test]
     fn packet_line_schema() {
-        let hello = eth_tcp([10, 0, 0, 2], [93, 184, 216, 34], 51000, 443, 0x18, &client_hello("example.com"));
-        let dns = eth_udp([10, 0, 0, 2], [9, 9, 9, 9], 40000, 53, &dns_query("example.com"));
+        let hello = eth_tcp(
+            [10, 0, 0, 2],
+            [93, 184, 216, 34],
+            51000,
+            443,
+            0x18,
+            &client_hello("example.com"),
+        );
+        let dns = eth_udp(
+            [10, 0, 0, 2],
+            [9, 9, 9, 9],
+            40000,
+            53,
+            &dns_query("example.com"),
+        );
         let lines = run(Format::Json, false, &[(T0, hello.clone()), (T0 + 1, dns)]);
 
         let p: Value = serde_json::from_str(&lines[0]).unwrap();
@@ -355,8 +417,11 @@ mod tests {
     #[test]
     fn alert_and_summary_schema() {
         let lines = run(Format::Json, false, &scan());
-        let alert: Value =
-            lines.iter().map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|v| v["type"] == "alert").unwrap();
+        let alert: Value = lines
+            .iter()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .find(|v| v["type"] == "alert")
+            .unwrap();
         assert_eq!(alert["state"], "raised");
         assert_eq!(alert["alert"], "Port scan");
         assert_eq!(alert["severity"], "high");
@@ -387,8 +452,13 @@ mod tests {
     #[test]
     fn text_format_is_greppable() {
         let lines = run(Format::Text, false, &scan());
-        assert_eq!(lines[0], "1700000000.501000 TCP   203.0.113.7:40000 -> 10.0.0.1:1 54B [S]");
-        assert!(lines.iter().any(|l| l.ends_with("ALERT Port scan 203.0.113.7 -> 10.0.0.1 (20 ports in 60s)")));
+        assert_eq!(
+            lines[0],
+            "1700000000.501000 TCP   203.0.113.7:40000 -> 10.0.0.1:1 54B [S]"
+        );
+        assert!(lines
+            .iter()
+            .any(|l| l.ends_with("ALERT Port scan 203.0.113.7 -> 10.0.0.1 (20 ports in 60s)")));
         assert!(lines.contains(&"--- summary ---".to_string()));
         assert!(lines.iter().any(|l| l == "packets:      25"));
     }
@@ -397,7 +467,14 @@ mod tests {
     fn hostile_hostnames_cannot_break_the_stream() {
         // The name is rejected by the sanitiser, so nothing unescaped can
         // reach the output; the line is still valid JSON.
-        let evil = eth_tcp([10, 0, 0, 2], [1, 1, 1, 1], 5, 80, 0x18, b"GET / HTTP/1.1\r\nHost: a\"}\n{\"x\r\n\r\n");
+        let evil = eth_tcp(
+            [10, 0, 0, 2],
+            [1, 1, 1, 1],
+            5,
+            80,
+            0x18,
+            b"GET / HTTP/1.1\r\nHost: a\"}\n{\"x\r\n\r\n",
+        );
         let lines = run(Format::Json, false, &[(T0, evil)]);
         assert_eq!(lines.len(), 2);
         let v: Value = serde_json::from_str(&lines[0]).unwrap();
@@ -426,7 +503,9 @@ mod tests {
         }
         let mut exporter = Exporter::new(Broken, Format::Json, false);
         let frame = eth_tcp([1, 1, 1, 1], [2, 2, 2, 2], 1, 2, 0x02, b"");
-        let err = exporter.feed(LinkType::Ethernet, 0, &frame, frame.len()).unwrap_err();
+        let err = exporter
+            .feed(LinkType::Ethernet, 0, &frame, frame.len())
+            .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
     }
 }

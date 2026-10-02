@@ -1,14 +1,15 @@
+use rand::Rng;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
     widgets::Widget,
 };
-use rand::Rng;
 use std::collections::HashMap;
 
 // Character sets for Matrix rain
-const ASCII_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()[]{}|\\/<>?+=~`";
+const ASCII_CHARS: &str =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()[]{}|\\/<>?+=~`";
 const KATAKANA_CHARS: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ";
 const SYMBOLS_CHARS: &str = "☆★○●◎◇◆□■△▲▽▼※〒→←↑↓〓∈∋⊆⊇⊂⊃∪∩∧∨¬⇒⇔∀∃∠⊥⌒∂∇≡≒≪≫√∽∝∵∫∬";
 const BINARY_CHARS: &str = "01";
@@ -71,21 +72,18 @@ impl RainColumn {
     fn new(x: usize, height: usize, character_set: CharacterSet) -> Self {
         let mut rng = rand::thread_rng();
         let z_depth = rng.gen_range(0.3..1.0);
-        
+
         // Create initial characters spread throughout the column
         let mut chars = Vec::new();
         let num_chars = rng.gen_range(3..8);
         for i in 0..num_chars {
             let y = (i as f32 / num_chars as f32) * height as f32 * rng.gen_range(0.5..0.9);
-            let mut char = MatrixChar::new(
-                random_matrix_char(&mut rng, character_set),
-                y
-            );
+            let mut char = MatrixChar::new(random_matrix_char(&mut rng, character_set), y);
             // Vary the intensity for depth
             char.intensity = rng.gen_range(0.3..1.0);
             chars.push(char);
         }
-        
+
         Self {
             x,
             chars,
@@ -146,12 +144,12 @@ impl MatrixRain {
 
     pub fn set_traffic_rate(&mut self, rate: f32) {
         self.traffic_rate = rate;
-        
+
         // Trigger glitch effect on high traffic
         if rate > 800.0 {
             self.global_glitch_timer = 0.5;
         }
-        
+
         // Update fall speed for existing columns
         for column in self.columns.values_mut() {
             column.fall_speed = calculate_fall_speed_from_traffic(rate) * column.z_depth;
@@ -188,13 +186,14 @@ impl MatrixRain {
                     _ => CharacterSet::Mixed,
                 }
             };
-            
+
             let mut column = RainColumn::new(x, self.height, char_set);
-            column.fall_speed = calculate_fall_speed_from_traffic(self.traffic_rate) * column.z_depth;
-            
+            column.fall_speed =
+                calculate_fall_speed_from_traffic(self.traffic_rate) * column.z_depth;
+
             // Add particle effect for new column
             self.add_particle_burst(x as f32, 0.0);
-            
+
             self.columns.insert(x, column);
         }
     }
@@ -227,17 +226,18 @@ impl MatrixRain {
         if self.demo_mode {
             self.update_demo(delta_time);
         }
-        
+
         // Update visual effects timers
         self.threat_pulse = (self.threat_pulse - delta_time * 2.0).max(0.0);
         self.screen_flash = (self.screen_flash - delta_time * 3.0).max(0.0);
         self.global_glitch_timer = (self.global_glitch_timer - delta_time).max(0.0);
         self.rainbow_offset += delta_time * 50.0;
-        
+
         // Update all columns
         for column in self.columns.values_mut() {
-            column.pulse_timer = (column.pulse_timer + delta_time * 4.0) % (2.0 * std::f32::consts::PI);
-            
+            column.pulse_timer =
+                (column.pulse_timer + delta_time * 4.0) % (2.0 * std::f32::consts::PI);
+
             // Update character positions and effects
             for char in column.chars.iter_mut() {
                 // Move character down with smooth interpolation
@@ -247,16 +247,17 @@ impl MatrixRain {
                     1.0
                 };
                 char.y += column.fall_speed * delta_time * speed_modifier;
-                
+
                 // Update intensity with smooth fade
                 char.intensity = (char.intensity - delta_time * 0.5).max(0.0);
-                
+
                 // Update trail intensities
                 for j in 0..char.trail_intensity.len() {
                     let fade_rate = 0.3 + (j as f32 * 0.1);
-                    char.trail_intensity[j] = (char.trail_intensity[j] - delta_time * fade_rate).max(0.0);
+                    char.trail_intensity[j] =
+                        (char.trail_intensity[j] - delta_time * fade_rate).max(0.0);
                 }
-                
+
                 // Glitch effect
                 if self.global_glitch_timer > 0.0 || char.glitch_timer > 0.0 {
                     let mut rng = rand::thread_rng();
@@ -267,22 +268,22 @@ impl MatrixRain {
                 }
                 char.glitch_timer = (char.glitch_timer - delta_time).max(0.0);
             }
-            
+
             // Add new characters at top if needed
             if let Some(last_char) = column.chars.last() {
                 if last_char.y > 1.5 {
                     let mut rng = rand::thread_rng();
-                    column.chars.insert(0, MatrixChar::new(
-                        random_matrix_char(&mut rng, column.character_set),
-                        0.0
-                    ));
+                    column.chars.insert(
+                        0,
+                        MatrixChar::new(random_matrix_char(&mut rng, column.character_set), 0.0),
+                    );
                 }
             }
-            
-            // Remove faded characters at bottom  
+
+            // Remove faded characters at bottom
             column.chars.retain(|c| c.y < self.height as f32 + 5.0); // Keep some buffer for smooth scrolling
         }
-        
+
         // Update particles
         self.particles.retain_mut(|particle| {
             particle.x += particle.vx * delta_time;
@@ -291,18 +292,18 @@ impl MatrixRain {
             particle.lifetime -= delta_time;
             particle.lifetime > 0.0
         });
-        
+
         // Update density based on traffic
         self.update_density();
     }
 
     fn update_demo(&mut self, delta_time: f32) {
         self.demo_timer += delta_time;
-        
+
         // Simulate traffic patterns
         let traffic = match (self.demo_timer % 20.0) as i32 {
-            0..=5 => 100.0 + (self.demo_timer * 20.0).sin() * 50.0,     // Low traffic
-            6..=10 => 500.0 + (self.demo_timer * 30.0).sin() * 200.0,   // Medium traffic
+            0..=5 => 100.0 + (self.demo_timer * 20.0).sin() * 50.0, // Low traffic
+            6..=10 => 500.0 + (self.demo_timer * 30.0).sin() * 200.0, // Medium traffic
             11..=15 => 1000.0 + (self.demo_timer * 40.0).sin() * 300.0, // High traffic
             _ => {
                 // Simulate threat/DDoS
@@ -310,9 +311,9 @@ impl MatrixRain {
                 2000.0
             }
         };
-        
+
         self.set_traffic_rate(traffic);
-        
+
         // Reset threat after demo cycle
         if (self.demo_timer % 20.0) < 16.0 {
             self.set_threat_active(false);
@@ -323,12 +324,12 @@ impl MatrixRain {
         // Calculate desired column count based on traffic rate
         let desired_columns = calculate_column_count_from_traffic(self.traffic_rate, self.width);
         let current_columns = self.columns.len();
-        
+
         if desired_columns > current_columns {
             // Add more columns
             let mut rng = rand::thread_rng();
             let columns_to_add = desired_columns - current_columns;
-            
+
             for _ in 0..columns_to_add {
                 // Find empty positions
                 let mut x = rng.gen_range(0..self.width);
@@ -337,7 +338,7 @@ impl MatrixRain {
                     x = (x + 1) % self.width;
                     attempts += 1;
                 }
-                
+
                 if !self.columns.contains_key(&x) {
                     self.add_column(x);
                 }
@@ -346,7 +347,7 @@ impl MatrixRain {
             // Remove some columns
             let columns_to_remove = current_columns - desired_columns;
             let keys: Vec<usize> = self.columns.keys().copied().collect();
-            
+
             for key in keys.iter().take(columns_to_remove) {
                 self.columns.remove(key);
             }
@@ -375,13 +376,13 @@ impl Widget for &mut MatrixRain {
                 }
             }
         }
-        
+
         // Render particles first (background layer)
         for particle in &self.particles {
             // Scale particle coordinates to render area
             let x = ((particle.x / self.width as f32) * area.width as f32) as u16;
             let y = ((particle.y / self.height as f32) * area.height as f32) as u16;
-            
+
             if x < area.width && y < area.height {
                 let alpha = particle.lifetime;
                 let color = match particle.color {
@@ -392,38 +393,38 @@ impl Widget for &mut MatrixRain {
                     ),
                     _ => particle.color,
                 };
-                
+
                 buf.set_string(
                     area.x + x,
                     area.y + y,
                     particle.char.to_string(),
-                    Style::default().fg(color)
+                    Style::default().fg(color),
                 );
             }
         }
-        
+
         // Sort columns by z_depth for proper rendering order (far to near)
         let mut sorted_columns: Vec<_> = self.columns.values().collect();
         sorted_columns.sort_by(|a, b| a.z_depth.partial_cmp(&b.z_depth).unwrap());
-        
+
         // Render each column
         for column in sorted_columns {
             // Map column x coordinate to render area
             if column.x >= self.width {
                 continue; // Skip columns outside bounds
             }
-            
+
             // Scale x coordinate to fit render area
             let x = ((column.x as f32 / self.width as f32) * area.width as f32) as u16;
-            
+
             for char in column.chars.iter() {
-                // Scale y coordinate to fit render area  
+                // Scale y coordinate to fit render area
                 let base_y = ((char.y / self.height as f32) * area.height as f32) as u16;
-                
+
                 // Render trail effect
                 for (trail_idx, &trail_intensity) in char.trail_intensity.iter().enumerate() {
                     let trail_y = base_y.saturating_sub((trail_idx + 1) as u16);
-                    
+
                     if x < area.width && trail_y < area.height && trail_intensity > 0.0 {
                         let trail_char = if trail_idx == 0 {
                             char.value
@@ -436,7 +437,7 @@ impl Widget for &mut MatrixRain {
                                 char.value
                             }
                         };
-                        
+
                         let color = calculate_trail_color(
                             trail_intensity,
                             column.z_depth,
@@ -444,16 +445,16 @@ impl Widget for &mut MatrixRain {
                             self.rainbow_offset + (x as f32 * 10.0) + (trail_y as f32 * 5.0),
                             self.threat_pulse,
                         );
-                        
+
                         buf.set_string(
                             area.x + x,
                             area.y + trail_y,
                             trail_char.to_string(),
-                            Style::default().fg(color)
+                            Style::default().fg(color),
                         );
                     }
                 }
-                
+
                 // Render main character
                 if x < area.width && base_y < area.height && char.intensity > 0.01 {
                     let color = if let Some(override_color) = char.color_override {
@@ -468,12 +469,12 @@ impl Widget for &mut MatrixRain {
                             column.pulse_timer,
                         )
                     };
-                    
+
                     buf.set_string(
                         area.x + x,
                         area.y + base_y,
                         char.value.to_string(),
-                        Style::default().fg(color)
+                        Style::default().fg(color),
                     );
                 }
             }
@@ -494,7 +495,7 @@ fn calculate_character_color(
             // Classic Matrix green with depth variation
             let depth_factor = 0.5 + z_depth * 0.5;
             let green_base = (200.0 * depth_factor) as u8;
-            
+
             if intensity > 0.9 {
                 Color::Rgb(220, 255, 220) // Bright white-green
             } else if intensity > 0.7 {
@@ -557,7 +558,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     let c = v * s;
     let x = c * (1.0 - ((h * 6.0) % 2.0 - 1.0).abs());
     let m = v - c;
-    
+
     let (r, g, b) = match (h * 6.0) as i32 {
         0 => (c, x, 0.0),
         1 => (x, c, 0.0),
@@ -566,7 +567,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
         4 => (x, 0.0, c),
         _ => (c, 0.0, x),
     };
-    
+
     (
         ((r + m) * 255.0) as u8,
         ((g + m) * 255.0) as u8,
@@ -589,11 +590,14 @@ pub fn random_matrix_char(rng: &mut impl Rng, char_set: CharacterSet) -> char {
         CharacterSet::Hex => HEX_CHARS.chars().collect(),
         CharacterSet::Mixed => {
             // Mix all character sets
-            let all_chars = format!("{}{}{}{}", ASCII_CHARS, KATAKANA_CHARS, SYMBOLS_CHARS, BINARY_CHARS);
+            let all_chars = format!(
+                "{}{}{}{}",
+                ASCII_CHARS, KATAKANA_CHARS, SYMBOLS_CHARS, BINARY_CHARS
+            );
             all_chars.chars().collect()
         }
     };
-    
+
     if chars.is_empty() {
         '?'
     } else {

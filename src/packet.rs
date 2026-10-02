@@ -26,7 +26,13 @@ pub fn parse_packet(data: &[u8]) -> Result<Packet, Box<dyn std::error::Error>> {
         }
     };
 
-    Ok(Packet { data: data.to_vec(), length, timestamp: 0, src_ip, dst_ip })
+    Ok(Packet {
+        data: data.to_vec(),
+        length,
+        timestamp: 0,
+        src_ip,
+        dst_ip,
+    })
 }
 
 fn ipv4_total_length(data: &[u8]) -> Option<usize> {

@@ -99,13 +99,21 @@ pub fn answers(msg: &[u8]) -> Option<(String, Vec<IpAddr>)> {
     }
     let mut addrs = Vec::new();
     for _ in 0..ancount.min(MAX_RECORDS) {
-        let Some(after_name) = skip_name(msg, pos) else { break };
-        let Some(fixed) = msg.get(after_name..after_name + 10) else { break };
+        let Some(after_name) = skip_name(msg, pos) else {
+            break;
+        };
+        let Some(fixed) = msg.get(after_name..after_name + 10) else {
+            break;
+        };
         let rtype = u16::from_be_bytes([fixed[0], fixed[1]]);
         let rdlen = usize::from(u16::from_be_bytes([fixed[8], fixed[9]]));
-        let Some(rdata) = msg.get(after_name + 10..after_name + 10 + rdlen) else { break };
+        let Some(rdata) = msg.get(after_name + 10..after_name + 10 + rdlen) else {
+            break;
+        };
         match (rtype, rdlen) {
-            (1, 4) => addrs.push(IpAddr::V4(Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3]))),
+            (1, 4) => addrs.push(IpAddr::V4(Ipv4Addr::new(
+                rdata[0], rdata[1], rdata[2], rdata[3],
+            ))),
             (28, 16) => {
                 let mut octets = [0u8; 16];
                 octets.copy_from_slice(rdata);
@@ -128,8 +136,14 @@ mod tests {
 
     #[test]
     fn parses_real_names() {
-        assert_eq!(question_name(&query("example.com")).as_deref(), Some("example.com"));
-        assert_eq!(question_name(&query("WWW.Rust-Lang.ORG")).as_deref(), Some("www.rust-lang.org"));
+        assert_eq!(
+            question_name(&query("example.com")).as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(
+            question_name(&query("WWW.Rust-Lang.ORG")).as_deref(),
+            Some("www.rust-lang.org")
+        );
     }
 
     #[test]
@@ -164,7 +178,11 @@ mod tests {
         msg.extend_from_slice(&a_record);
         assert_eq!(answers(&msg).unwrap().1, vec![v4]);
 
-        assert_eq!(answers(&query("example.com")), None, "queries have no answers");
+        assert_eq!(
+            answers(&query("example.com")),
+            None,
+            "queries have no answers"
+        );
         // Answer count lies about how much data follows: stop cleanly.
         let mut lying = dns_response("example.com", &[v4]);
         lying[7] = 200;

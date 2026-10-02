@@ -145,7 +145,10 @@ impl AppState {
             line.push(' ');
             line.push_str(&insight.label());
         }
-        self.packet_log.push_front(LogEntry { protocol: event.protocol, line });
+        self.packet_log.push_front(LogEntry {
+            protocol: event.protocol,
+            line,
+        });
         self.packet_log.truncate(LOG_LINES);
         self.raw_packets.push_front(record.sample().to_vec());
         self.raw_packets.truncate(RAW_SAMPLES);
@@ -154,7 +157,9 @@ impl AppState {
     /// Log lines to display, newest first, honouring the protocol filter.
     pub fn visible_log(&self) -> impl Iterator<Item = &LogEntry> {
         let filter = self.log_filter;
-        self.packet_log.iter().filter(move |e| filter.is_none_or(|p| e.protocol == p))
+        self.packet_log
+            .iter()
+            .filter(move |e| filter.is_none_or(|p| e.protocol == p))
     }
 
     /// Carry out a user command. Returns `true` when the app should exit.
@@ -173,9 +178,11 @@ impl AppState {
                 let seen: Vec<Protocol> = self.stats.ranked().into_iter().map(|(p, _)| p).collect();
                 self.log_filter = match self.log_filter {
                     None => seen.first().copied(),
-                    Some(current) => {
-                        seen.iter().position(|p| *p == current).and_then(|i| seen.get(i + 1)).copied()
-                    }
+                    Some(current) => seen
+                        .iter()
+                        .position(|p| *p == current)
+                        .and_then(|i| seen.get(i + 1))
+                        .copied(),
                 };
             }
             Command::ClearFilter => self.log_filter = None,
@@ -235,28 +242,42 @@ mod tests {
     use crate::{Protocol, ThreatLevel};
 
     fn syn(src: [u8; 4], port: u16) -> Vec<u8> {
-        ethernet(0x0800, &ipv4(6, src, [10, 0, 0, 1], &tcp(50000, port, TcpFlags::SYN, b"")))
+        ethernet(
+            0x0800,
+            &ipv4(6, src, [10, 0, 0, 1], &tcp(50000, port, TcpFlags::SYN, b"")),
+        )
     }
 
     #[test]
     fn capture_to_state_end_to_end() {
         let (sink, rx, _) = channel(64);
-        let dns = ethernet(0x0800, &ipv4(17, [10, 0, 0, 2], [8, 8, 8, 8], &udp(40000, 53, b"")));
+        let dns = ethernet(
+            0x0800,
+            &ipv4(17, [10, 0, 0, 2], [8, 8, 8, 8], &udp(40000, 53, b"")),
+        );
         sink.submit(LinkType::Ethernet, &syn([10, 0, 0, 2], 443), 74);
         sink.submit(LinkType::Ethernet, &dns, 90);
         sink.error("boom");
 
         let mut state = AppState::new();
         let mut seen = Vec::new();
-        let n = state.drain(&rx, 100, "12:00:00", Instant::now(), |e| seen.push(e.protocol));
+        let n = state.drain(&rx, 100, "12:00:00", Instant::now(), |e| {
+            seen.push(e.protocol)
+        });
 
         assert_eq!(n, 3);
         assert_eq!(seen, vec![Protocol::HTTPS, Protocol::DNS]);
         assert_eq!(state.total_packets, 2);
         assert_eq!(state.stats.get_count(Protocol::HTTPS), 1);
         assert_eq!(state.stats.get_total_bytes(Protocol::DNS), 90);
-        assert_eq!(state.packet_log[0], "[12:00:00] DNS   10.0.0.2 -> 8.8.8.8 [90B]");
-        assert_eq!(state.packet_log[1], "[12:00:00] HTTPS 10.0.0.2 -> 10.0.0.1 [74B]");
+        assert_eq!(
+            state.packet_log[0],
+            "[12:00:00] DNS   10.0.0.2 -> 8.8.8.8 [90B]"
+        );
+        assert_eq!(
+            state.packet_log[1],
+            "[12:00:00] HTTPS 10.0.0.2 -> 10.0.0.1 [74B]"
+        );
         assert_eq!(state.raw_packets[0], dns[..]);
         assert_eq!(state.capture_error.as_deref(), Some("boom"));
         assert_eq!(state.flows.len(), 2);
@@ -274,22 +295,56 @@ mod tests {
         let (client, resolver, server) = ([10, 0, 0, 2], [9, 9, 9, 9], [93, 184, 216, 34]);
         let (sink, rx, _) = channel(64);
         let q = eth_udp(client, resolver, 40000, 53, &dns_query("example.com"));
-        let r = eth_udp(resolver, client, 53, 40000, &dns_response("example.com", &[server.into()]));
-        let hello = eth_tcp(client, server, 50000, 443, TcpFlags::ACK, &client_hello("example.com"));
+        let r = eth_udp(
+            resolver,
+            client,
+            53,
+            40000,
+            &dns_response("example.com", &[server.into()]),
+        );
+        let hello = eth_tcp(
+            client,
+            server,
+            50000,
+            443,
+            TcpFlags::ACK,
+            &client_hello("example.com"),
+        );
         for f in [&q, &r, &hello] {
             sink.submit(LinkType::Ethernet, f, f.len());
         }
         let mut state = AppState::new();
         state.drain(&rx, 10, "t", Instant::now(), |_| {});
 
-        assert!(state.packet_log[2].ends_with("dns=example.com"), "{}", state.packet_log[2]);
-        assert!(state.packet_log[0].ends_with("sni=example.com"), "{}", state.packet_log[0]);
-        assert_eq!(state.names.display(&server.into()), "93.184.216.34 (example.com)");
-        let tls = state.flows.top_flows(5).into_iter().find(|f| f.protocol == Protocol::HTTPS).unwrap();
+        assert!(
+            state.packet_log[2].ends_with("dns=example.com"),
+            "{}",
+            state.packet_log[2]
+        );
+        assert!(
+            state.packet_log[0].ends_with("sni=example.com"),
+            "{}",
+            state.packet_log[0]
+        );
+        assert_eq!(
+            state.names.display(&server.into()),
+            "93.184.216.34 (example.com)"
+        );
+        let tls = state
+            .flows
+            .top_flows(5)
+            .into_iter()
+            .find(|f| f.protocol == Protocol::HTTPS)
+            .unwrap();
         assert_eq!(tls.name.as_deref(), Some("example.com"));
         assert!(tls.summary().ends_with("example.com"));
         // The DNS flow is not labelled with the name it merely asked about.
-        let dns = state.flows.top_flows(5).into_iter().find(|f| f.protocol == Protocol::DNS).unwrap();
+        let dns = state
+            .flows
+            .top_flows(5)
+            .into_iter()
+            .find(|f| f.protocol == Protocol::DNS)
+            .unwrap();
         assert_eq!(dns.name, None);
     }
 
@@ -309,7 +364,11 @@ mod tests {
         assert_eq!(state.raw_packets.len(), 1);
         assert_eq!(state.skipped_while_paused, 30);
         assert_eq!(state.total_packets, 31, "statistics keep counting");
-        assert_eq!(state.detector.get_threat_level(), ThreatLevel::High, "a scan is not missed");
+        assert_eq!(
+            state.detector.get_threat_level(),
+            ThreatLevel::High,
+            "a scan is not missed"
+        );
 
         state.command(Command::TogglePause);
         assert!(!state.paused);
@@ -328,7 +387,11 @@ mod tests {
             sink.submit(LinkType::Ethernet, &syn([10, 0, 0, 2], 443), 60);
         }
         for _ in 0..2 {
-            sink.submit(LinkType::Ethernet, &eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b""), 60);
+            sink.submit(
+                LinkType::Ethernet,
+                &eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b""),
+                60,
+            );
         }
         sink.submit(LinkType::Ethernet, &syn([10, 0, 0, 2], 22), 60);
         state.drain(&rx, 100, "t", Instant::now(), |_| {});
@@ -398,6 +461,10 @@ mod tests {
         }
         assert_eq!(state.packet_log.len(), LOG_LINES);
         assert_eq!(state.raw_packets.len(), RAW_SAMPLES);
-        assert!(state.packet_log[0].ends_with("[599B]"), "newest first: {}", state.packet_log[0]);
+        assert!(
+            state.packet_log[0].ends_with("[599B]"),
+            "newest first: {}",
+            state.packet_log[0]
+        );
     }
 }

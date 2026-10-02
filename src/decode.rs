@@ -151,10 +151,23 @@ impl TcpFlags {
 /// Decoded transport header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
-    Tcp { src_port: u16, dst_port: u16, flags: TcpFlags },
-    Udp { src_port: u16, dst_port: u16 },
-    Icmp { icmp_type: u8, code: u8 },
-    Icmpv6 { icmp_type: u8, code: u8 },
+    Tcp {
+        src_port: u16,
+        dst_port: u16,
+        flags: TcpFlags,
+    },
+    Udp {
+        src_port: u16,
+        dst_port: u16,
+    },
+    Icmp {
+        icmp_type: u8,
+        code: u8,
+    },
+    Icmpv6 {
+        icmp_type: u8,
+        code: u8,
+    },
     /// A non-first IP fragment: the transport header lives in another packet.
     Fragment,
     /// Any other IP protocol (GRE, ESP, SCTP, ...).
@@ -243,7 +256,9 @@ pub fn decode(link: LinkType, data: &[u8]) -> Result<Decoded<'_>, DecodeError> {
         }
     };
 
-    let ip = data.get(ip_offset..).ok_or(DecodeError::Truncated(Layer::Link))?;
+    let ip = data
+        .get(ip_offset..)
+        .ok_or(DecodeError::Truncated(Layer::Link))?;
     let first = *ip.first().ok_or(DecodeError::Truncated(Layer::Network))?;
     let mut decoded = match first >> 4 {
         4 => decode_ipv4(ip)?,
@@ -298,7 +313,11 @@ fn decode_ipv4(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
     // Trust the IP total length to cut off Ethernet padding, but never read
     // past what was actually captured.
     let total_len = usize::from(u16::from_be_bytes([ip[2], ip[3]]));
-    let end = if total_len >= ihl { total_len.min(ip.len()) } else { ip.len() };
+    let end = if total_len >= ihl {
+        total_len.min(ip.len())
+    } else {
+        ip.len()
+    };
     let fragment_offset = u16::from_be_bytes([ip[6], ip[7]]) & 0x1fff;
     let proto = ip[9];
     let src = IpAddr::V4(Ipv4Addr::new(ip[12], ip[13], ip[14], ip[15]));
@@ -310,7 +329,16 @@ fn decode_ipv4(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
         decode_transport(proto, &ip[ihl..end])?
     };
 
-    Ok(Decoded { src, dst, ip_proto: proto, ttl: ip[8], vlan: None, transport, payload, captured_len: 0 })
+    Ok(Decoded {
+        src,
+        dst,
+        ip_proto: proto,
+        ttl: ip[8],
+        vlan: None,
+        transport,
+        payload,
+        captured_len: 0,
+    })
 }
 
 fn decode_ipv6(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
@@ -326,7 +354,11 @@ fn decode_ipv6(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
     dst.copy_from_slice(&ip[24..40]);
 
     // payload_len == 0 means a jumbogram; fall back to the captured length.
-    let end = if payload_len == 0 { ip.len() } else { (40 + payload_len).min(ip.len()) };
+    let end = if payload_len == 0 {
+        ip.len()
+    } else {
+        (40 + payload_len).min(ip.len())
+    };
     let mut offset = 40;
     let mut is_fragment = false;
 
@@ -335,13 +367,17 @@ fn decode_ipv6(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
         match next {
             // hop-by-hop, routing, destination options
             0 | 43 | 60 => {
-                let hdr = ip.get(offset..offset + 2).ok_or(DecodeError::Truncated(Layer::Network))?;
+                let hdr = ip
+                    .get(offset..offset + 2)
+                    .ok_or(DecodeError::Truncated(Layer::Network))?;
                 next = hdr[0];
                 offset += (usize::from(hdr[1]) + 1) * 8;
             }
             // fragment header: fixed 8 bytes
             44 => {
-                let hdr = ip.get(offset..offset + 8).ok_or(DecodeError::Truncated(Layer::Network))?;
+                let hdr = ip
+                    .get(offset..offset + 8)
+                    .ok_or(DecodeError::Truncated(Layer::Network))?;
                 next = hdr[0];
                 if u16::from_be_bytes([hdr[2], hdr[3]]) >> 3 != 0 {
                     is_fragment = true;
@@ -350,7 +386,9 @@ fn decode_ipv6(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
             }
             // authentication header: length in 4-byte units, minus 2
             51 => {
-                let hdr = ip.get(offset..offset + 2).ok_or(DecodeError::Truncated(Layer::Network))?;
+                let hdr = ip
+                    .get(offset..offset + 2)
+                    .ok_or(DecodeError::Truncated(Layer::Network))?;
                 next = hdr[0];
                 offset += (usize::from(hdr[1]) + 2) * 4;
             }
@@ -477,7 +515,13 @@ mod tests {
     fn ethernet_ipv4_udp_payload() {
         let pkt = ethernet(0x0800, &ipv4(17, A, B, &udp(5353, 53, b"hello")));
         let d = decode(LinkType::Ethernet, &pkt).unwrap();
-        assert_eq!(d.transport, Transport::Udp { src_port: 5353, dst_port: 53 });
+        assert_eq!(
+            d.transport,
+            Transport::Udp {
+                src_port: 5353,
+                dst_port: 53
+            }
+        );
         assert_eq!(d.payload, b"hello");
         assert_eq!(d.captured_len, pkt.len());
         assert_eq!(d.vlan, None);
@@ -568,7 +612,10 @@ mod tests {
         }
         body.extend_from_slice(&tcp(1, 443, TcpFlags::SYN, b""));
         let pkt = ipv6(60, [1; 16], [2; 16], &body);
-        assert_eq!(decode(LinkType::RawIp, &pkt), Err(DecodeError::BadHeaderLength(Layer::Network)));
+        assert_eq!(
+            decode(LinkType::RawIp, &pkt),
+            Err(DecodeError::BadHeaderLength(Layer::Network))
+        );
 
         // Eight is still followed to the real transport.
         let mut body = Vec::new();
@@ -595,7 +642,13 @@ mod tests {
     fn icmp_and_other_protocols() {
         let pkt = ipv4(1, A, B, &[8, 0, 0, 0, 1, 2]);
         let d = decode(LinkType::RawIp, &pkt).unwrap();
-        assert_eq!(d.transport, Transport::Icmp { icmp_type: 8, code: 0 });
+        assert_eq!(
+            d.transport,
+            Transport::Icmp {
+                icmp_type: 8,
+                code: 0
+            }
+        );
         let pkt = ipv4(47, A, B, &[0; 8]);
         let d = decode(LinkType::RawIp, &pkt).unwrap();
         assert_eq!(d.transport, Transport::Other);
@@ -607,12 +660,18 @@ mod tests {
         let mut sll = vec![0u8; 14];
         sll.extend_from_slice(&[0x08, 0x00]);
         sll.extend_from_slice(&ip);
-        assert_eq!(decode(LinkType::LinuxSll, &sll).unwrap().dst_port(), Some(53));
+        assert_eq!(
+            decode(LinkType::LinuxSll, &sll).unwrap().dst_port(),
+            Some(53)
+        );
 
         let mut sll2 = vec![0x08, 0x00];
         sll2.extend_from_slice(&[0u8; 18]);
         sll2.extend_from_slice(&ip);
-        assert_eq!(decode(LinkType::LinuxSll2, &sll2).unwrap().dst_port(), Some(53));
+        assert_eq!(
+            decode(LinkType::LinuxSll2, &sll2).unwrap().dst_port(),
+            Some(53)
+        );
 
         let mut null = vec![2, 0, 0, 0];
         null.extend_from_slice(&ip);
@@ -621,18 +680,33 @@ mod tests {
 
     #[test]
     fn errors_are_specific() {
-        assert_eq!(decode(LinkType::RawIp, &[]), Err(DecodeError::Truncated(Layer::Network)));
-        assert_eq!(decode(LinkType::Ethernet, &[0; 5]), Err(DecodeError::Truncated(Layer::Link)));
+        assert_eq!(
+            decode(LinkType::RawIp, &[]),
+            Err(DecodeError::Truncated(Layer::Network))
+        );
+        assert_eq!(
+            decode(LinkType::Ethernet, &[0; 5]),
+            Err(DecodeError::Truncated(Layer::Link))
+        );
         assert_eq!(
             decode(LinkType::Ethernet, &ethernet(0x0806, &[0; 28])),
             Err(DecodeError::NotIp { ethertype: 0x0806 })
         );
-        assert_eq!(decode(LinkType::RawIp, &[0x15; 40]), Err(DecodeError::BadIpVersion(1)));
+        assert_eq!(
+            decode(LinkType::RawIp, &[0x15; 40]),
+            Err(DecodeError::BadIpVersion(1))
+        );
         let mut bad_ihl = ipv4(6, A, B, &tcp(1, 2, 0, b""));
         bad_ihl[0] = 0x42;
-        assert_eq!(decode(LinkType::RawIp, &bad_ihl), Err(DecodeError::BadHeaderLength(Layer::Network)));
+        assert_eq!(
+            decode(LinkType::RawIp, &bad_ihl),
+            Err(DecodeError::BadHeaderLength(Layer::Network))
+        );
         let short_tcp = ipv4(6, A, B, &[0; 10]);
-        assert_eq!(decode(LinkType::RawIp, &short_tcp), Err(DecodeError::Truncated(Layer::Transport)));
+        assert_eq!(
+            decode(LinkType::RawIp, &short_tcp),
+            Err(DecodeError::Truncated(Layer::Transport))
+        );
     }
 
     #[test]

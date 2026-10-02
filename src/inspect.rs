@@ -117,8 +117,17 @@ pub fn tls_sni(payload: &[u8]) -> Option<String> {
 
 /// The `Host` header of an HTTP/1.x request, without any port.
 pub fn http_host(payload: &[u8]) -> Option<String> {
-    const METHODS: [&[u8]; 9] =
-        [b"GET ", b"POST ", b"PUT ", b"DELETE ", b"HEAD ", b"OPTIONS ", b"PATCH ", b"CONNECT ", b"TRACE "];
+    const METHODS: [&[u8]; 9] = [
+        b"GET ",
+        b"POST ",
+        b"PUT ",
+        b"DELETE ",
+        b"HEAD ",
+        b"OPTIONS ",
+        b"PATCH ",
+        b"CONNECT ",
+        b"TRACE ",
+    ];
     if !METHODS.iter().any(|m| payload.starts_with(m)) {
         return None;
     }
@@ -195,14 +204,19 @@ impl Default for NameCache {
 
 impl NameCache {
     pub fn new(capacity: usize) -> Self {
-        Self { names: HashMap::new(), capacity: capacity.max(1), clock: 0 }
+        Self {
+            names: HashMap::new(),
+            capacity: capacity.max(1),
+            clock: 0,
+        }
     }
 
     pub fn insert(&mut self, ip: IpAddr, name: &str) {
         self.clock += 1;
         if !self.names.contains_key(&ip) && self.names.len() >= self.capacity {
             // Drop the least recently learned eighth in one pass.
-            let mut ages: Vec<(u64, IpAddr)> = self.names.iter().map(|(ip, (_, t))| (*t, *ip)).collect();
+            let mut ages: Vec<(u64, IpAddr)> =
+                self.names.iter().map(|(ip, (_, t))| (*t, *ip)).collect();
             let remove = (self.capacity / 8).max(1).min(ages.len());
             ages.select_nth_unstable(remove - 1);
             for (_, old) in ages.into_iter().take(remove) {
@@ -256,14 +270,24 @@ mod tests {
 
     #[test]
     fn sni_from_a_client_hello() {
-        assert_eq!(tls_sni(&client_hello("example.com")).as_deref(), Some("example.com"));
-        assert_eq!(tls_sni(&client_hello("Sub.Example.ORG")).as_deref(), Some("sub.example.org"));
+        assert_eq!(
+            tls_sni(&client_hello("example.com")).as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(
+            tls_sni(&client_hello("Sub.Example.ORG")).as_deref(),
+            Some("sub.example.org")
+        );
     }
 
     #[test]
     fn sni_rejects_other_records_and_truncation() {
         let hello = client_hello("example.com");
-        assert_eq!(tls_sni(&[0x17, 0x03, 0x03, 0, 1, 0]), None, "application data");
+        assert_eq!(
+            tls_sni(&[0x17, 0x03, 0x03, 0, 1, 0]),
+            None,
+            "application data"
+        );
         let mut server_hello = hello.clone();
         server_hello[5] = 0x02;
         assert_eq!(tls_sni(&server_hello), None);
@@ -277,7 +301,10 @@ mod tests {
     #[test]
     fn names_that_could_attack_the_terminal_are_rejected() {
         assert_eq!(tls_sni(&client_hello("evil\x1b[2Jexample.com")), None);
-        assert_eq!(sanitize_hostname(b"ok-host_1.example"), Some("ok-host_1.example".into()));
+        assert_eq!(
+            sanitize_hostname(b"ok-host_1.example"),
+            Some("ok-host_1.example".into())
+        );
         assert_eq!(sanitize_hostname(b"has space.com"), None);
         assert_eq!(sanitize_hostname(b"caf\xc3\xa9.fr"), None);
         assert_eq!(sanitize_hostname(b""), None);
@@ -290,20 +317,35 @@ mod tests {
     fn http_host_header() {
         let req = b"GET /index.html HTTP/1.1\r\nUser-Agent: x\r\nHost: Example.com:8080\r\nAccept: */*\r\n\r\nbody";
         assert_eq!(http_host(req).as_deref(), Some("example.com"));
-        assert_eq!(http_host(b"POST / HTTP/1.1\r\nhost:api.test\r\n\r\n").as_deref(), Some("api.test"));
+        assert_eq!(
+            http_host(b"POST / HTTP/1.1\r\nhost:api.test\r\n\r\n").as_deref(),
+            Some("api.test")
+        );
         // Not a request, no header, header only in the body, hostile value.
         assert_eq!(http_host(b"HTTP/1.1 200 OK\r\nHost: x\r\n\r\n"), None);
         assert_eq!(http_host(b"GET / HTTP/1.0\r\n\r\n"), None);
-        assert_eq!(http_host(b"GET / HTTP/1.1\r\n\r\nHost: smuggled.example\r\n"), None);
-        assert_eq!(http_host(b"GET / HTTP/1.1\r\nHost: a\x1b[31m.com\r\n\r\n"), None);
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\n\r\nHost: smuggled.example\r\n"),
+            None
+        );
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\nHost: a\x1b[31m.com\r\n\r\n"),
+            None
+        );
         assert_eq!(http_host(b"GET / HTTP/1.1\r\nHost: [::1]:80\r\n\r\n"), None);
     }
 
     #[test]
     fn quic_long_header() {
         assert!(is_quic_initial(&[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]));
-        assert!(!is_quic_initial(&[0x43, 0, 0, 0, 1, 8, 1, 2, 3]), "short header");
-        assert!(!is_quic_initial(&[0xc3, 0, 0, 0, 0, 8, 1, 2, 3]), "version negotiation");
+        assert!(
+            !is_quic_initial(&[0x43, 0, 0, 0, 1, 8, 1, 2, 3]),
+            "short header"
+        );
+        assert!(
+            !is_quic_initial(&[0xc3, 0, 0, 0, 0, 8, 1, 2, 3]),
+            "version negotiation"
+        );
         assert!(!is_quic_initial(&[0xc3, 0, 0]));
     }
 
@@ -313,41 +355,101 @@ mod tests {
         let d = decode(LinkType::Ethernet, &pkt).unwrap();
         assert_eq!(insight(&d).unwrap().label(), "dns=example.com");
 
-        let pkt = eth_tcp(C, S, 50000, 443, TcpFlags::ACK, &client_hello("example.com"));
+        let pkt = eth_tcp(
+            C,
+            S,
+            50000,
+            443,
+            TcpFlags::ACK,
+            &client_hello("example.com"),
+        );
         let d = decode(LinkType::Ethernet, &pkt).unwrap();
         assert_eq!(insight(&d).unwrap().label(), "sni=example.com");
 
         // TLS on a non-standard port is still recognised by content.
-        let pkt = eth_tcp(C, S, 50000, 8443, TcpFlags::ACK, &client_hello("alt.example"));
-        assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()).unwrap().label(), "sni=alt.example");
+        let pkt = eth_tcp(
+            C,
+            S,
+            50000,
+            8443,
+            TcpFlags::ACK,
+            &client_hello("alt.example"),
+        );
+        assert_eq!(
+            insight(&decode(LinkType::Ethernet, &pkt).unwrap())
+                .unwrap()
+                .label(),
+            "sni=alt.example"
+        );
 
-        let pkt = eth_tcp(C, S, 50000, 80, TcpFlags::ACK, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
-        assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()).unwrap().label(), "host=example.com");
+        let pkt = eth_tcp(
+            C,
+            S,
+            50000,
+            80,
+            TcpFlags::ACK,
+            b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        );
+        assert_eq!(
+            insight(&decode(LinkType::Ethernet, &pkt).unwrap())
+                .unwrap()
+                .label(),
+            "host=example.com"
+        );
 
         let pkt = eth_tcp(C, S, 50000, 443, TcpFlags::SYN, b"");
         assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()), None);
-        let pkt = eth_udp([10, 0, 0, 9], [224, 0, 0, 251], 5353, 5353, &dns_query("printer.local"));
-        assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()).unwrap().label(), "dns=printer.local");
+        let pkt = eth_udp(
+            [10, 0, 0, 9],
+            [224, 0, 0, 251],
+            5353,
+            5353,
+            &dns_query("printer.local"),
+        );
+        assert_eq!(
+            insight(&decode(LinkType::Ethernet, &pkt).unwrap())
+                .unwrap()
+                .label(),
+            "dns=printer.local"
+        );
         let pkt = eth_udp(C, S, 40000, 123, &dns_query("not-dns.example"));
-        assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()), None, "port 123 is not DNS");
+        assert_eq!(
+            insight(&decode(LinkType::Ethernet, &pkt).unwrap()),
+            None,
+            "port 123 is not DNS"
+        );
     }
 
     #[test]
     fn name_cache_learns_from_answers_and_stays_bounded() {
         let mut cache = NameCache::new(8);
-        let resp = dns_response("example.com", &[IpAddr::from(S), "2606:2800::1".parse().unwrap()]);
+        let resp = dns_response(
+            "example.com",
+            &[IpAddr::from(S), "2606:2800::1".parse().unwrap()],
+        );
         assert_eq!(cache.learn_from_dns(&resp), 2);
         assert_eq!(cache.get(&IpAddr::from(S)), Some("example.com"));
-        assert_eq!(cache.display(&IpAddr::from(S)), "93.184.216.34 (example.com)");
+        assert_eq!(
+            cache.display(&IpAddr::from(S)),
+            "93.184.216.34 (example.com)"
+        );
         assert_eq!(cache.display(&IpAddr::from(C)), "10.0.0.2");
-        assert_eq!(cache.learn_from_dns(&dns_query("example.com")), 0, "a query has no answers");
+        assert_eq!(
+            cache.learn_from_dns(&dns_query("example.com")),
+            0,
+            "a query has no answers"
+        );
         assert_eq!(cache.learn_from_dns(b"junk"), 0);
 
         for i in 0..100u8 {
             cache.insert(IpAddr::from([10, 1, 1, i]), "x.example");
             assert!(cache.len() <= 8);
         }
-        assert_eq!(cache.get(&IpAddr::from([10, 1, 1, 99])), Some("x.example"), "newest kept");
+        assert_eq!(
+            cache.get(&IpAddr::from([10, 1, 1, 99])),
+            Some("x.example"),
+            "newest kept"
+        );
         assert_eq!(cache.get(&IpAddr::from(S)), None, "oldest evicted");
     }
 

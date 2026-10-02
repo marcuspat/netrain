@@ -123,7 +123,9 @@ impl Cli {
         } else if let Some(path) = &self.read {
             Mode::Replay(path.clone())
         } else {
-            Mode::Live { interface: self.interface.clone() }
+            Mode::Live {
+                interface: self.interface.clone(),
+            }
         }
     }
 }
@@ -154,16 +156,33 @@ mod tests {
     #[test]
     fn existing_flags_keep_working() {
         assert_eq!(parse(&["--demo"]).unwrap().mode(), Mode::Demo);
-        assert_eq!(parse(&["--version"]).unwrap_err().kind(), clap::error::ErrorKind::DisplayVersion);
-        assert_eq!(parse(&["-V"]).unwrap_err().kind(), clap::error::ErrorKind::DisplayVersion);
-        assert_eq!(parse(&["--help"]).unwrap_err().kind(), clap::error::ErrorKind::DisplayHelp);
-        assert_eq!(parse(&["-h"]).unwrap_err().kind(), clap::error::ErrorKind::DisplayHelp);
+        assert_eq!(
+            parse(&["--version"]).unwrap_err().kind(),
+            clap::error::ErrorKind::DisplayVersion
+        );
+        assert_eq!(
+            parse(&["-V"]).unwrap_err().kind(),
+            clap::error::ErrorKind::DisplayVersion
+        );
+        assert_eq!(
+            parse(&["--help"]).unwrap_err().kind(),
+            clap::error::ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            parse(&["-h"]).unwrap_err().kind(),
+            clap::error::ErrorKind::DisplayHelp
+        );
     }
 
     #[test]
     fn interface_filter_and_read() {
         let cli = parse(&["-i", "eth0", "-f", "tcp port 443"]).unwrap();
-        assert_eq!(cli.mode(), Mode::Live { interface: Some("eth0".into()) });
+        assert_eq!(
+            cli.mode(),
+            Mode::Live {
+                interface: Some("eth0".into())
+            }
+        );
         assert_eq!(cli.filter, "tcp port 443");
 
         let cli = parse(&["--read", "trace.pcap", "--speed", "0", "--filter", "udp"]).unwrap();
@@ -181,17 +200,34 @@ mod tests {
     fn capture_safety_defaults() {
         let cli = parse(&[]).unwrap();
         assert!(!cli.promiscuous, "promiscuous mode is opt-in");
-        assert!(!cli.keep_privileges, "root is dropped unless asked otherwise");
+        assert!(
+            !cli.keep_privileges,
+            "root is dropped unless asked otherwise"
+        );
         assert_eq!(cli.snaplen, DEFAULT_SNAPLEN);
 
         let cli = parse(&["--promiscuous", "--snaplen", "256", "--keep-privileges"]).unwrap();
         assert!(cli.promiscuous && cli.keep_privileges);
         assert_eq!(cli.snaplen, 256);
         use clap::error::ErrorKind::*;
-        assert_eq!(parse(&["--snaplen", "10"]).unwrap_err().kind(), ValueValidation);
-        assert_eq!(parse(&["--snaplen", "9999999"]).unwrap_err().kind(), ValueValidation);
-        assert_eq!(parse(&["--demo", "--promiscuous"]).unwrap_err().kind(), ArgumentConflict);
-        assert_eq!(parse(&["-r", "x.pcap", "--snaplen", "128"]).unwrap_err().kind(), ArgumentConflict);
+        assert_eq!(
+            parse(&["--snaplen", "10"]).unwrap_err().kind(),
+            ValueValidation
+        );
+        assert_eq!(
+            parse(&["--snaplen", "9999999"]).unwrap_err().kind(),
+            ValueValidation
+        );
+        assert_eq!(
+            parse(&["--demo", "--promiscuous"]).unwrap_err().kind(),
+            ArgumentConflict
+        );
+        assert_eq!(
+            parse(&["-r", "x.pcap", "--snaplen", "128"])
+                .unwrap_err()
+                .kind(),
+            ArgumentConflict
+        );
     }
 
     #[test]
@@ -205,8 +241,14 @@ mod tests {
 
         assert!(parse(&["--alerts-only"]).unwrap().validate().is_err());
         assert!(parse(&["--count", "5"]).unwrap().validate().is_err());
-        assert!(parse(&["-r", "x.pcap", "--summary", "--headless"]).unwrap().validate().is_err());
-        assert!(parse(&["-r", "x.pcap", "--summary", "--json"]).unwrap().validate().is_ok());
+        assert!(parse(&["-r", "x.pcap", "--summary", "--headless"])
+            .unwrap()
+            .validate()
+            .is_err());
+        assert!(parse(&["-r", "x.pcap", "--summary", "--json"])
+            .unwrap()
+            .validate()
+            .is_ok());
         assert_eq!(
             parse(&["--demo", "--json"]).unwrap_err().kind(),
             clap::error::ErrorKind::ArgumentConflict
@@ -216,13 +258,38 @@ mod tests {
     #[test]
     fn contradictory_or_unknown_arguments_are_rejected() {
         use clap::error::ErrorKind::*;
-        assert_eq!(parse(&["--demo", "--read", "x.pcap"]).unwrap_err().kind(), ArgumentConflict);
-        assert_eq!(parse(&["--demo", "-i", "eth0"]).unwrap_err().kind(), ArgumentConflict);
-        assert_eq!(parse(&["-i", "eth0", "-r", "x.pcap"]).unwrap_err().kind(), ArgumentConflict);
-        assert_eq!(parse(&["--demo", "-f", "tcp"]).unwrap_err().kind(), ArgumentConflict);
-        assert_eq!(parse(&["--speed", "2"]).unwrap_err().kind(), MissingRequiredArgument);
-        assert_eq!(parse(&["-r", "x.pcap", "--speed", "-1"]).unwrap_err().kind(), ValueValidation);
-        assert_eq!(parse(&["-r", "x.pcap", "--speed", "fast"]).unwrap_err().kind(), ValueValidation);
+        assert_eq!(
+            parse(&["--demo", "--read", "x.pcap"]).unwrap_err().kind(),
+            ArgumentConflict
+        );
+        assert_eq!(
+            parse(&["--demo", "-i", "eth0"]).unwrap_err().kind(),
+            ArgumentConflict
+        );
+        assert_eq!(
+            parse(&["-i", "eth0", "-r", "x.pcap"]).unwrap_err().kind(),
+            ArgumentConflict
+        );
+        assert_eq!(
+            parse(&["--demo", "-f", "tcp"]).unwrap_err().kind(),
+            ArgumentConflict
+        );
+        assert_eq!(
+            parse(&["--speed", "2"]).unwrap_err().kind(),
+            MissingRequiredArgument
+        );
+        assert_eq!(
+            parse(&["-r", "x.pcap", "--speed", "-1"])
+                .unwrap_err()
+                .kind(),
+            ValueValidation
+        );
+        assert_eq!(
+            parse(&["-r", "x.pcap", "--speed", "fast"])
+                .unwrap_err()
+                .kind(),
+            ValueValidation
+        );
         // A typo used to be ignored silently and start a live capture.
         assert_eq!(parse(&["--dmeo"]).unwrap_err().kind(), UnknownArgument);
     }

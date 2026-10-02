@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::alerts::{Alert, AlertKind, ThreatEngine};
 use crate::decode::{decode_guess, Decoded, Transport};
-use crate::{Packet, ThreatType, Severity, Anomaly, ThreatIndicator, ThreatLevel};
+use crate::{Anomaly, Packet, Severity, ThreatIndicator, ThreatLevel, ThreatType};
 
 /// Configuration for threat detection thresholds
 pub struct ThreatConfig {
@@ -114,7 +114,11 @@ impl ThreatDetector {
             }
         }
         let records = self.connections.entry(ip).or_default();
-        records.push(ConnectionRecord { source_ip: ip, port, timestamp: now });
+        records.push(ConnectionRecord {
+            source_ip: ip,
+            port,
+            timestamp: now,
+        });
         if records.len() > MAX_LEGACY_RECORDS_PER_SOURCE {
             let excess = records.len() - MAX_LEGACY_RECORDS_PER_SOURCE;
             records.drain(..excess);
@@ -162,7 +166,11 @@ impl ThreatDetector {
     fn count_packet(&mut self) {
         let now = Instant::now();
         if now.duration_since(self.packet_stats.window_start) > self.config.ddos_window {
-            self.packet_stats = PacketStats { packet_count: 0, syn_count: 0, window_start: now };
+            self.packet_stats = PacketStats {
+                packet_count: 0,
+                syn_count: 0,
+                window_start: now,
+            };
         }
         self.packet_stats.packet_count += 1;
     }
@@ -199,7 +207,11 @@ impl ThreatDetector {
 
     /// Live alerts, most severe first.
     pub fn active_alerts(&self) -> Vec<Alert> {
-        self.engine.active_alerts(Instant::now()).into_iter().cloned().collect()
+        self.engine
+            .active_alerts(Instant::now())
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     /// Release state for hosts and alerts that have gone quiet. Call
@@ -238,10 +250,12 @@ impl ThreatDetector {
         if self.current_threat_type == ThreatType::SynFlood {
             return ThreatType::SynFlood;
         }
-        if alerts
-            .iter()
-            .any(|a| matches!(a.kind, AlertKind::PortScan | AlertKind::HostSweep | AlertKind::StealthScan))
-        {
+        if alerts.iter().any(|a| {
+            matches!(
+                a.kind,
+                AlertKind::PortScan | AlertKind::HostSweep | AlertKind::StealthScan
+            )
+        }) {
             return ThreatType::PortScan;
         }
         self.current_threat_type.clone()
@@ -295,11 +309,10 @@ impl ThreatDetector {
     /// Clean old connection records
     fn clean_old_connections(&mut self) {
         let now = Instant::now();
-        
+
         for connections in self.connections.values_mut() {
-            connections.retain(|conn| {
-                now.duration_since(conn.timestamp) <= self.config.connection_window
-            });
+            connections
+                .retain(|conn| now.duration_since(conn.timestamp) <= self.config.connection_window);
         }
 
         // Remove entries with no connections
@@ -319,8 +332,17 @@ mod live_traffic_tests {
     use crate::decode::TcpFlags;
 
     fn frame(src: [u8; 4], dst_port: u16, flags: u8) -> Packet {
-        let data = ethernet(0x0800, &ipv4(6, src, [10, 0, 0, 1], &tcp(40000, dst_port, flags, b"")));
-        Packet { length: data.len(), data, timestamp: 0, src_ip: String::new(), dst_ip: String::new() }
+        let data = ethernet(
+            0x0800,
+            &ipv4(6, src, [10, 0, 0, 1], &tcp(40000, dst_port, flags, b"")),
+        );
+        Packet {
+            length: data.len(),
+            data,
+            timestamp: 0,
+            src_ip: String::new(),
+            dst_ip: String::new(),
+        }
     }
 
     #[test]
@@ -338,7 +360,11 @@ mod live_traffic_tests {
     fn syn_ack_replies_are_not_counted_as_attack() {
         let mut detector = ThreatDetector::new();
         for port in 0..150 {
-            detector.analyze_packet(&frame([203, 0, 113, 7], 1000 + port, TcpFlags::SYN | TcpFlags::ACK));
+            detector.analyze_packet(&frame(
+                [203, 0, 113, 7],
+                1000 + port,
+                TcpFlags::SYN | TcpFlags::ACK,
+            ));
         }
         assert_eq!(detector.get_threat_type(), ThreatType::Unknown);
         assert!(!detector.is_port_scan("203.0.113.7".parse().unwrap()));
@@ -366,7 +392,10 @@ mod live_traffic_tests {
         assert_eq!(detector.get_threat_level(), ThreatLevel::High);
         let alerts = detector.active_alerts();
         assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].summary(), "Port scan 198.51.100.9 -> 10.0.0.1 (25 ports in 60s)");
+        assert_eq!(
+            alerts[0].summary(),
+            "Port scan 198.51.100.9 -> 10.0.0.1 (25 ports in 60s)"
+        );
     }
 
     #[test]

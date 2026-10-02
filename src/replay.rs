@@ -129,7 +129,11 @@ impl Default for ReplayAnalyzer {
     }
 }
 
-fn alert_key(kind: AlertKind, source: Option<std::net::IpAddr>, target: Option<std::net::IpAddr>) -> String {
+fn alert_key(
+    kind: AlertKind,
+    source: Option<std::net::IpAddr>,
+    target: Option<std::net::IpAddr>,
+) -> String {
     match (source, target) {
         (Some(s), Some(t)) => format!("{} {} -> {}", kind.label(), s, t),
         (Some(s), None) => format!("{} from {}", kind.label(), s),
@@ -158,7 +162,13 @@ impl ReplayAnalyzer {
     ///
     /// Returns what the packet was and which alerts it raised or let lapse,
     /// or `None` when it could not be decoded.
-    pub fn feed(&mut self, link: LinkType, ts_micros: i64, data: &[u8], wire_len: usize) -> Option<Observation> {
+    pub fn feed(
+        &mut self,
+        link: LinkType,
+        ts_micros: i64,
+        data: &[u8],
+        wire_len: usize,
+    ) -> Option<Observation> {
         let first = *self.first_micros.get_or_insert(ts_micros);
         // Timestamps can go backwards in real captures; never move the clock back.
         // (Saturating: a corrupt file can hold any timestamp.)
@@ -174,7 +184,11 @@ impl ReplayAnalyzer {
         };
         self.summary.packets += 1;
         self.summary.bytes = self.summary.bytes.saturating_add(event.wire_len as u64);
-        *self.summary.protocols.entry(event.protocol.label()).or_insert(0) += 1;
+        *self
+            .summary
+            .protocols
+            .entry(event.protocol.label())
+            .or_insert(0) += 1;
 
         self.engine.observe(&decoded, now);
         self.flows.observe(&event, now);
@@ -189,7 +203,9 @@ impl ReplayAnalyzer {
         let (mut raised, mut cleared) = (Vec::new(), Vec::new());
         let revision = self.engine.revision();
         let due = self.last_micros >= self.next_alert_check;
-        if revision != self.seen_revision || (due && (!self.active.is_empty() || self.engine.alert_count() > 0)) {
+        if revision != self.seen_revision
+            || (due && (!self.active.is_empty() || self.engine.alert_count() > 0))
+        {
             self.seen_revision = revision;
             self.next_alert_check = self.last_micros.saturating_add(ALERT_RECHECK_MICROS);
             let mut still_active = BTreeMap::new();
@@ -214,7 +230,12 @@ impl ReplayAnalyzer {
         if self.summary.peak_level.is_none_or(|peak| level > peak) {
             self.summary.peak_level = Some(level);
         }
-        Some(Observation { event, insight, raised, cleared })
+        Some(Observation {
+            event,
+            insight,
+            raised,
+            cleared,
+        })
     }
 
     /// Packets decoded so far.
@@ -225,8 +246,12 @@ impl ReplayAnalyzer {
     pub fn finish(mut self) -> ReplaySummary {
         self.summary.duration = Duration::from_micros(self.last_micros as u64);
         self.summary.flows = self.flows.total_flows();
-        self.summary.top_talkers =
-            self.flows.top_talkers(5).into_iter().map(|(ip, h)| (ip, h.bytes, h.packets)).collect();
+        self.summary.top_talkers = self
+            .flows
+            .top_talkers(5)
+            .into_iter()
+            .map(|(ip, h)| (ip, h.bytes, h.packets))
+            .collect();
         self.summary
     }
 }
@@ -252,8 +277,8 @@ impl std::error::Error for ReplayError {}
 /// Analyse a whole pcap file held in memory.
 pub fn analyze_pcap(file: &[u8]) -> Result<ReplaySummary, ReplayError> {
     let reader = PcapReader::new(file).map_err(ReplayError::Pcap)?;
-    let link =
-        LinkType::from_dlt(reader.link_type).ok_or(ReplayError::UnsupportedLinkType(reader.link_type))?;
+    let link = LinkType::from_dlt(reader.link_type)
+        .ok_or(ReplayError::UnsupportedLinkType(reader.link_type))?;
     let mut analyzer = ReplayAnalyzer::default();
     for record in reader {
         let record = record.map_err(ReplayError::Pcap)?;
@@ -272,8 +297,14 @@ mod tests {
     #[test]
     fn summary_counts_and_is_time_independent() {
         let mut w = PcapWriter::new(1);
-        w.packet(1_000_000, &eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b"q"));
-        w.packet(1_500_000, &eth_tcp([10, 0, 0, 2], [1, 1, 1, 1], 4001, 443, TcpFlags::SYN, b""));
+        w.packet(
+            1_000_000,
+            &eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b"q"),
+        );
+        w.packet(
+            1_500_000,
+            &eth_tcp([10, 0, 0, 2], [1, 1, 1, 1], 4001, 443, TcpFlags::SYN, b""),
+        );
         w.packet(1_600_000, &ethernet(0x0806, &[0; 28]));
         let file = w.finish();
 
@@ -289,7 +320,11 @@ mod tests {
         assert_eq!(a.count(Protocol::SSH), 0);
         assert_eq!(a.duration, Duration::from_micros(600_000));
         assert_eq!(a.flows, 2);
-        assert_eq!(a.top_talkers[0].0.to_string(), "10.0.0.2", "took part in both flows");
+        assert_eq!(
+            a.top_talkers[0].0.to_string(),
+            "10.0.0.2",
+            "took part in both flows"
+        );
         assert!(a.to_string().contains("flows:        2"));
         assert_eq!(a.peak(), ThreatLevel::Low);
         assert!(a.alerts.is_empty());
@@ -301,14 +336,24 @@ mod tests {
         let build = |gap_micros: i64| {
             let mut w = PcapWriter::new(1);
             for port in 1..=40u16 {
-                let f = eth_tcp([203, 0, 113, 7], [10, 0, 0, 1], 40000, port, TcpFlags::SYN, b"");
+                let f = eth_tcp(
+                    [203, 0, 113, 7],
+                    [10, 0, 0, 1],
+                    40000,
+                    port,
+                    TcpFlags::SYN,
+                    b"",
+                );
                 w.packet(i64::from(port) * gap_micros, &f);
             }
             w.finish()
         };
         // 40 ports in 2 seconds: a scan. Uses file time, not wall time.
         let burst = analyze_pcap(&build(50_000)).unwrap();
-        assert_eq!(burst.alerts.iter().collect::<Vec<_>>(), ["Port scan 203.0.113.7 -> 10.0.0.1"]);
+        assert_eq!(
+            burst.alerts.iter().collect::<Vec<_>>(),
+            ["Port scan 203.0.113.7 -> 10.0.0.1"]
+        );
         assert_eq!(burst.peak(), ThreatLevel::High);
         // The same 40 ports, one every 5 minutes: not a scan.
         let slow = analyze_pcap(&build(300_000_000)).unwrap();
@@ -321,24 +366,42 @@ mod tests {
         let mut raised = 0;
         let mut cleared = Vec::new();
         for port in 1..=40u16 {
-            let f = eth_tcp([203, 0, 113, 7], [10, 0, 0, 1], 40000, port, TcpFlags::SYN, b"");
-            let obs = a.feed(LinkType::Ethernet, i64::from(port) * 10_000, &f, f.len()).unwrap();
+            let f = eth_tcp(
+                [203, 0, 113, 7],
+                [10, 0, 0, 1],
+                40000,
+                port,
+                TcpFlags::SYN,
+                b"",
+            );
+            let obs = a
+                .feed(LinkType::Ethernet, i64::from(port) * 10_000, &f, f.len())
+                .unwrap();
             raised += obs.raised.len();
             assert!(obs.cleared.is_empty());
             if port == 20 {
-                assert_eq!(obs.raised[0].summary(), "Port scan 203.0.113.7 -> 10.0.0.1 (20 ports in 60s)");
+                assert_eq!(
+                    obs.raised[0].summary(),
+                    "Port scan 203.0.113.7 -> 10.0.0.1 (20 ports in 60s)"
+                );
             }
         }
         assert_eq!(raised, 1, "a continuing scan is one alert, not twenty-one");
 
         // Two minutes of silence later an unrelated packet shows the alert has lapsed.
         let f = eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b"q");
-        let obs = a.feed(LinkType::Ethernet, 120_000_000, &f, f.len()).unwrap();
+        let obs = a
+            .feed(LinkType::Ethernet, 120_000_000, &f, f.len())
+            .unwrap();
         cleared.extend(obs.cleared);
         assert_eq!(cleared.len(), 1);
         assert_eq!(cleared[0].kind, AlertKind::PortScan);
         assert!(obs.raised.is_empty());
-        assert_eq!(a.feed(LinkType::Ethernet, 120_000_001, &[0; 3], 3), None, "undecodable");
+        assert_eq!(
+            a.feed(LinkType::Ethernet, 120_000_001, &[0; 3], 3),
+            None,
+            "undecodable"
+        );
     }
 
     #[test]
@@ -350,14 +413,23 @@ mod tests {
         }
         let summary = a.finish();
         assert_eq!(summary.packets, 6);
-        assert_eq!(summary.duration, Duration::from_micros(MAX_STREAM_MICROS as u64));
+        assert_eq!(
+            summary.duration,
+            Duration::from_micros(MAX_STREAM_MICROS as u64)
+        );
     }
 
     #[test]
     fn errors() {
-        assert_eq!(analyze_pcap(b"nope"), Err(ReplayError::Pcap(PcapError::TooShort)));
+        assert_eq!(
+            analyze_pcap(b"nope"),
+            Err(ReplayError::Pcap(PcapError::TooShort))
+        );
         let odd = PcapWriter::new(147).finish();
-        assert_eq!(analyze_pcap(&odd), Err(ReplayError::UnsupportedLinkType(147)));
+        assert_eq!(
+            analyze_pcap(&odd),
+            Err(ReplayError::UnsupportedLinkType(147))
+        );
         let empty = analyze_pcap(&PcapWriter::new(1).finish()).unwrap();
         assert_eq!(empty, ReplaySummary::default());
     }
