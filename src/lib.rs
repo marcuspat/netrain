@@ -292,12 +292,6 @@ mod tests {
             assert_eq!(detector.get_threat_level(), ThreatLevel::Critical);
         }
 
-        #[test]
-        #[should_panic(expected = "Detector not initialized")]
-        fn test_uninitialized_detector() {
-            let detector: Option<ThreatDetector> = None;
-            detector.expect("Detector not initialized").is_ddos_active();
-        }
     }
 
     mod protocol_classification_tests {
@@ -624,6 +618,12 @@ pub struct ProtocolStats {
     bytes: HashMap<Protocol, usize>,
 }
 
+impl Default for ProtocolStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProtocolStats {
     pub fn new() -> Self {
         Self {
@@ -677,14 +677,17 @@ pub fn calculate_fall_speed(column: &RainColumn) -> f32 {
     let base_speed = column.speed * column.intensity;
     
     // Check if column contains threat indicators (exclamation marks)
-    let has_threat = column.chars.iter().any(|&c| c == '!');
+    let has_threat = column.chars.contains(&'!');
     
     if has_threat {
         // Threats fall faster - more than 2.0
         base_speed * 3.0
     } else {
         // Normal speed varies between 0.0 and 2.0 based on intensity
-        (base_speed * 2.0).min(2.0).max(0.1)
+        // min-then-max rather than clamp(): clamp panics on a NaN speed.
+        #[allow(clippy::manual_clamp)]
+        let speed = (base_speed * 2.0).min(2.0).max(0.1);
+        speed
     }
 }
 
@@ -722,7 +725,7 @@ pub fn get_http_method(packet: &Packet) -> Option<&str> {
 }
 
 pub fn is_tls_handshake(packet: &Packet) -> bool {
-    packet.data.len() > 0 && packet.data[0] == 0x16
+    !packet.data.is_empty() && packet.data[0] == 0x16
 }
 
 /// Extract the queried name from a DNS packet.

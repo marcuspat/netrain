@@ -239,7 +239,7 @@ impl MatrixRain {
             column.pulse_timer = (column.pulse_timer + delta_time * 4.0) % (2.0 * std::f32::consts::PI);
             
             // Update character positions and effects
-            for (_i, char) in column.chars.iter_mut().enumerate() {
+            for char in column.chars.iter_mut() {
                 // Move character down with smooth interpolation
                 let speed_modifier = if self.visual_mode == VisualMode::Pulse {
                     1.0 + (column.pulse_timer.sin() * 0.3)
@@ -347,8 +347,8 @@ impl MatrixRain {
             let columns_to_remove = current_columns - desired_columns;
             let keys: Vec<usize> = self.columns.keys().copied().collect();
             
-            for i in 0..columns_to_remove.min(keys.len()) {
-                self.columns.remove(&keys[i]);
+            for key in keys.iter().take(columns_to_remove) {
+                self.columns.remove(key);
             }
         }
     }
@@ -415,7 +415,7 @@ impl Widget for &mut MatrixRain {
             // Scale x coordinate to fit render area
             let x = ((column.x as f32 / self.width as f32) * area.width as f32) as u16;
             
-            for (_char_idx, char) in column.chars.iter().enumerate() {
+            for char in column.chars.iter() {
                 // Scale y coordinate to fit render area  
                 let base_y = ((char.y / self.height as f32) * area.height as f32) as u16;
                 

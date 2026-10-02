@@ -33,12 +33,12 @@ impl Column {
         // Generate random characters for this column
         let chars: Vec<char> = (0..height + 20)
             .map(|_| {
-                let c = match rng.gen_range(0..10) {
+                
+                match rng.gen_range(0..10) {
                     0..=3 => rng.gen_range(b'0'..=b'9') as char,
                     4..=6 => rng.gen_range(b'A'..=b'Z') as char,
                     _ => rng.gen_range(b'a'..=b'z') as char,
-                };
-                c
+                }
             })
             .collect();
         
@@ -70,9 +70,7 @@ impl SimpleMatrixRain {
         // Initialize with some columns
         for _ in 0..width / 3 {
             let x = rng.gen_range(0..width);
-            if !columns.contains_key(&x) {
-                columns.insert(x, Column::new(height));
-            }
+            columns.entry(x).or_insert_with(|| Column::new(height));
         }
         
         Self {
@@ -91,7 +89,11 @@ impl SimpleMatrixRain {
         // Update existing columns - simple and clean
         let mut to_remove = Vec::new();
         for (x, column) in self.columns.iter_mut() {
-            if self.tick % column.speed as u64 == 0 {
+            // `%` rather than `is_multiple_of` keeps the minimum Rust version
+            // down; the zero check keeps it from dividing by zero.
+            #[allow(clippy::manual_is_multiple_of)]
+            let due = column.speed != 0 && self.tick % column.speed as u64 == 0;
+            if due {
                 column.update();
                 if column.should_reset(self.height) {
                     to_remove.push(*x);
@@ -158,7 +160,7 @@ impl SimpleMatrixRain {
                     self.active_ips.push_back((ip.to_string(), 1));
                 } else {
                     // Replace least active IP
-                    if let Some(_) = self.active_ips.pop_back() {
+                    if self.active_ips.pop_back().is_some() {
                         self.active_ips.push_front((ip.to_string(), 1));
                     }
                 }
@@ -167,7 +169,7 @@ impl SimpleMatrixRain {
         
         // Sort by activity and keep top 5
         let mut sorted: Vec<_> = self.active_ips.drain(..).collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         sorted.truncate(5);
         self.active_ips = sorted.into_iter().collect();
         

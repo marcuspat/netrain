@@ -490,7 +490,7 @@ mod mock_pcap_tests {
         // Classify protocols
         let protocols: Vec<Protocol> = captured_packets
             .iter()
-            .map(|p| classify_protocol(p))
+            .map(classify_protocol)
             .collect();
 
         assert_eq!(protocols[0], Protocol::TCP);

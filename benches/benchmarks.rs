@@ -19,21 +19,21 @@ fn bench_packet_parsing(c: &mut Criterion) {
     group.bench_function("parse_small_packet", |b| {
         b.iter(|| {
             let result = parse_packet(black_box(&small_packet));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
     
     group.bench_function("parse_small_packet_optimized", |b| {
         b.iter(|| {
             let result = parse_packet_optimized(black_box(&small_packet));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
     
     group.bench_function("parse_small_packet_zero_alloc", |b| {
         b.iter(|| {
             let result = parse_packet_zero_alloc(black_box(&small_packet));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
     
@@ -41,7 +41,7 @@ fn bench_packet_parsing(c: &mut Criterion) {
         let mut reuse_vec = Vec::with_capacity(1500);
         b.iter(|| {
             let result = parse_packet_ultra_optimized(black_box(&small_packet), &mut reuse_vec);
-            black_box(result);
+            let _ = black_box(result);
         });
     });
     
@@ -52,7 +52,7 @@ fn bench_packet_parsing(c: &mut Criterion) {
     group.bench_function("parse_medium_packet", |b| {
         b.iter(|| {
             let result = parse_packet(black_box(&medium_packet));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
     
@@ -63,7 +63,7 @@ fn bench_packet_parsing(c: &mut Criterion) {
     group.bench_function("parse_large_packet", |b| {
         b.iter(|| {
             let result = parse_packet(black_box(&large_packet));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
     
@@ -260,7 +260,7 @@ fn bench_threat_detection(c: &mut Criterion) {
     
     group.bench_function("analyze_single_packet", |b| {
         b.iter_batched(
-            || ThreatDetector::new(),
+            ThreatDetector::new,
             |mut detector| {
                 detector.analyze_packet(black_box(&packet));
             },
@@ -311,7 +311,7 @@ fn bench_threat_detection(c: &mut Criterion) {
     // Anomaly detection
     group.bench_function("anomaly_detection", |b| {
         b.iter_batched(
-            || ThreatDetector::new(),
+            ThreatDetector::new,
             |mut detector| {
                 let anomaly = detector.detect_anomaly(black_box(&packet));
                 black_box(anomaly);

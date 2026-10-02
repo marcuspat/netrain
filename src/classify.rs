@@ -30,11 +30,7 @@ pub fn classify_payload(payload: &[u8]) -> Option<Protocol> {
 /// A lone leading `0x16` byte is still accepted so that a truncated capture
 /// of a handshake is recognised.
 pub fn is_tls_record(payload: &[u8]) -> bool {
-    match payload {
-        [0x14..=0x17, 0x03, 0x00..=0x04, ..] => true,
-        [0x16] => true,
-        _ => false,
-    }
+    matches!(payload, [0x14..=0x17, 0x03, 0x00..=0x04, ..] | [0x16])
 }
 
 /// Classify a decoded packet.

@@ -73,6 +73,12 @@ pub struct ThreatDetector {
 const MAX_LEGACY_SOURCES: usize = 4096;
 const MAX_LEGACY_RECORDS_PER_SOURCE: usize = 1024;
 
+impl Default for ThreatDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreatDetector {
     pub fn new() -> Self {
         Self {
