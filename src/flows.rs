@@ -90,7 +90,7 @@ impl Flow {
     }
 
     pub fn bytes(&self) -> u64 {
-        self.bytes_out + self.bytes_in
+        self.bytes_out.saturating_add(self.bytes_in)
     }
 
     /// e.g. `HTTPS 10.0.0.2:51000 -> 1.1.1.1:443 open 1.2 KB`.
@@ -222,7 +222,7 @@ impl FlowTable {
             }
             let host = self.hosts.entry(ip).or_insert(HostStats { packets: 0, bytes: 0, last_seen: now });
             host.packets += 1;
-            host.bytes += bytes;
+            host.bytes = host.bytes.saturating_add(bytes);
             host.last_seen = now;
         }
 
@@ -259,10 +259,10 @@ impl FlowTable {
         flow.last_seen = now;
         if src == flow.initiator {
             flow.packets_out += 1;
-            flow.bytes_out += bytes;
+            flow.bytes_out = flow.bytes_out.saturating_add(bytes);
         } else {
             flow.packets_in += 1;
-            flow.bytes_in += bytes;
+            flow.bytes_in = flow.bytes_in.saturating_add(bytes);
         }
         if specificity(event.protocol) > specificity(flow.protocol) {
             flow.protocol = event.protocol;

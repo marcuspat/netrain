@@ -154,8 +154,17 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       performance section now quotes them instead of the old "29ns" and "zero-allocation"
       claims. The last `unsafe` (`get_unchecked`) is gone. 220 -> 222 tests. Not done: the legacy
       `Packet` struct still carries `String` addresses; the live path does not use it.
-- [ ] **13. Fuzzing and hardening.** `cargo-fuzz` targets for decoder, DNS and TLS parsers with a
-      seed corpus; `#![forbid(unsafe_code)]` in the library; remove remaining panics on input.
+- [x] **13. Fuzzing and hardening** (`HASH`). `#![forbid(unsafe_code)]` on the library.
+      `tests/fuzz_smoke.rs` is a deterministic mutation fuzzer that runs on stable with
+      `cargo test`: it mutates valid packets and capture files and drives every parser, the legacy
+      API, and the stateful pipeline (channel, UI state, analyser, JSON exporter) with hostile
+      timestamps and lengths, checking that every output line is valid JSON. It found two panics,
+      both fixed: adding an absurd capture timestamp to an `Instant`, and byte-counter overflow
+      from a corrupt length (counters now saturate). Also removed: the panic in
+      `calculate_rain_density` on a negative rate. Clean at 1.5 M iterations in a debug build
+      (overflow checks on) and 3 M in release. `fuzz/` holds `cargo-fuzz` targets (decode,
+      inspect, pcap_file) for coverage-guided runs; they are **not run** - no nightly toolchain
+      was installable here. 222 -> 226 tests.
 - [ ] **14. CI and supply chain.** GitHub Actions: fmt, clippy `-D warnings`, tests on Linux and
       macOS, MSRV, `cargo-deny`/`cargo-audit`; one `cargo fmt` commit; dependency upgrades
       (ratatui, crossterm, pcap); release workflow with checksummed binaries.

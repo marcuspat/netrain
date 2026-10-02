@@ -45,3 +45,8 @@ netrain-v*
 # Temporary files
 *.tmp
 *.temp
+# cargo-fuzz output
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/Cargo.lock

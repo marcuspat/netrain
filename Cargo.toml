@@ -11,6 +11,7 @@ documentation = "https://docs.rs/netrain"
 readme = "README.md"
 keywords = ["network", "monitoring", "packet", "matrix", "tui"]
 categories = ["command-line-utilities", "network-programming"]
+exclude = ["fuzz/", "demo.gif"]
 
 [dependencies]
 pcap = "1.1"

@@ -1,5 +1,9 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
+// Everything in this library handles bytes an attacker can choose. It has no
+// need for `unsafe`, and the compiler now enforces that it stays that way.
+#![forbid(unsafe_code)]
+
 pub mod alerts;
 pub mod capture;
 pub mod classify;
@@ -186,9 +190,11 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "Negative traffic rate")]
         fn test_rain_density_negative_traffic() {
-            calculate_rain_density(-100.0);
+            // Nonsense input degrades to "no traffic"; it must not panic.
+            assert_eq!(calculate_rain_density(-100.0), 0.0);
+            assert_eq!(calculate_rain_density(f32::NAN), 0.0);
+            assert_eq!(calculate_rain_density(f32::INFINITY), 1.0);
         }
     }
 
@@ -628,7 +634,10 @@ impl ProtocolStats {
 
     pub fn add_packet(&mut self, protocol: Protocol, packet_bytes: usize) {
         *self.counts.entry(protocol).or_insert(0) += 1;
-        *self.bytes.entry(protocol).or_insert(0) += packet_bytes;
+        // Saturating: a 32-bit build passes 4 GB quickly, and a corrupt
+        // capture header can claim any length.
+        let bytes = self.bytes.entry(protocol).or_insert(0);
+        *bytes = bytes.saturating_add(packet_bytes);
     }
 
     pub fn get_count(&self, protocol: Protocol) -> usize {
@@ -688,14 +697,13 @@ pub fn fade_character(char: &mut MatrixChar) {
 }
 
 pub fn calculate_rain_density(traffic_rate: f32) -> f32 {
-    if traffic_rate < 0.0 {
-        panic!("Negative traffic rate");
+    // Map traffic rate to density (0.0 to 1.0); 10000 packets/sec is maximum
+    // density. A negative or NaN rate is treated as no traffic rather than
+    // aborting the program.
+    if traffic_rate.is_nan() || traffic_rate <= 0.0 {
+        return 0.0;
     }
-    
-    // Map traffic rate to density (0.0 to 1.0)
-    // Assume 10000 packets/sec is maximum density
-    let normalized = traffic_rate / 10000.0;
-    normalized.min(1.0)
+    (traffic_rate / 10000.0).min(1.0)
 }
 
 

@@ -78,10 +78,14 @@ pub fn dns_query(name: &str) -> Vec<u8> {
 
 /// Insert an 802.1Q tag with `vlan` into an Ethernet frame.
 pub fn with_vlan(frame: &[u8], vlan: u16) -> Vec<u8> {
-    let mut f = frame[..12].to_vec();
+    // A frame too short to have addresses is returned unchanged.
+    let Some((addresses, rest)) = frame.split_at_checked(12) else {
+        return frame.to_vec();
+    };
+    let mut f = addresses.to_vec();
     f.extend_from_slice(&[0x81, 0x00]);
     f.extend_from_slice(&(vlan & 0x0fff).to_be_bytes());
-    f.extend_from_slice(&frame[12..]);
+    f.extend_from_slice(rest);
     f
 }
 

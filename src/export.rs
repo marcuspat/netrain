@@ -140,7 +140,9 @@ pub fn summary_json(summary: &ReplaySummary, dropped: u64) -> String {
             .collect(),
         dropped,
     };
-    serde_json::to_string(&line).expect("summary serialises")
+    // Every field is a plain number, string or map of them, so this cannot
+    // fail; fall back to a minimal object rather than panicking if it ever does.
+    serde_json::to_string(&line).unwrap_or_else(|_| r#"{"type":"summary"}"#.to_string())
 }
 
 /// Streams events for each packet fed to it.

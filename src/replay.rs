@@ -105,6 +105,9 @@ pub struct ReplayAnalyzer {
     level: ThreatLevel,
 }
 
+/// Longest capture span honoured (ten years); later timestamps are clamped.
+const MAX_STREAM_MICROS: i64 = 10 * 365 * 24 * 3600 * 1_000_000;
+
 /// How often, in stream time, to look for alerts that have expired.
 const ALERT_RECHECK_MICROS: i64 = 1_000_000;
 
@@ -158,7 +161,11 @@ impl ReplayAnalyzer {
     pub fn feed(&mut self, link: LinkType, ts_micros: i64, data: &[u8], wire_len: usize) -> Option<Observation> {
         let first = *self.first_micros.get_or_insert(ts_micros);
         // Timestamps can go backwards in real captures; never move the clock back.
-        self.last_micros = self.last_micros.max(ts_micros - first);
+        // (Saturating: a corrupt file can hold any timestamp.)
+        self.last_micros = self.last_micros.max(ts_micros.saturating_sub(first));
+        // Clamp the span: adding an absurd duration to an `Instant` panics,
+        // and a corrupt timestamp must not be able to do that.
+        self.last_micros = self.last_micros.min(MAX_STREAM_MICROS);
         let now = self.epoch + Duration::from_micros(self.last_micros as u64);
 
         let Ok((event, decoded)) = observe(link, data, wire_len) else {
@@ -166,7 +173,7 @@ impl ReplayAnalyzer {
             return None;
         };
         self.summary.packets += 1;
-        self.summary.bytes += event.wire_len as u64;
+        self.summary.bytes = self.summary.bytes.saturating_add(event.wire_len as u64);
         *self.summary.protocols.entry(event.protocol.label()).or_insert(0) += 1;
 
         self.engine.observe(&decoded, now);
@@ -184,7 +191,7 @@ impl ReplayAnalyzer {
         let due = self.last_micros >= self.next_alert_check;
         if revision != self.seen_revision || (due && (!self.active.is_empty() || self.engine.alert_count() > 0)) {
             self.seen_revision = revision;
-            self.next_alert_check = self.last_micros + ALERT_RECHECK_MICROS;
+            self.next_alert_check = self.last_micros.saturating_add(ALERT_RECHECK_MICROS);
             let mut still_active = BTreeMap::new();
             for alert in self.engine.active_alerts(now) {
                 let key = alert_key(alert.kind, alert.source, alert.target);
@@ -332,6 +339,18 @@ mod tests {
         assert_eq!(cleared[0].kind, AlertKind::PortScan);
         assert!(obs.raised.is_empty());
         assert_eq!(a.feed(LinkType::Ethernet, 120_000_001, &[0; 3], 3), None, "undecodable");
+    }
+
+    #[test]
+    fn absurd_timestamps_do_not_panic() {
+        let f = eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b"q");
+        let mut a = ReplayAnalyzer::default();
+        for ts in [0, i64::MAX, i64::MIN, -1, i64::MAX - 1, 5] {
+            a.feed(LinkType::Ethernet, ts, &f, f.len());
+        }
+        let summary = a.finish();
+        assert_eq!(summary.packets, 6);
+        assert_eq!(summary.duration, Duration::from_micros(MAX_STREAM_MICROS as u64));
     }
 
     #[test]
