@@ -133,8 +133,17 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       197 -> 214 tests. Checked live in the dev container: `--json --alerts-only` under SIGINT
       printed the summary with real traffic. Adds `signal-hook` as a direct dependency (it was
       already in the tree via crossterm). `--demo` is not supported with these modes.
-- [ ] **11. Least privilege.** Open capture then drop root; document `setcap cap_net_raw,
-      cap_net_admin+eip`; smaller snaplen; immediate mode; promiscuous off unless requested.
+- [x] **11. Least privilege** (`HASH`). Root is dropped right after the capture is opened and the
+      filter compiled: to the invoking user under `sudo`, otherwise to `nobody`; supplementary
+      groups cleared, gid then uid set, and the drop verified irreversible (netrain exits if it
+      is not). All packet parsing, the UI and JSON output therefore run unprivileged.
+      `--keep-privileges` opts out. Promiscuous mode is now opt-in (`--promiscuous`; it was
+      always on), snap length defaults to 1600 (`--snaplen`; was 5000), read timeout 100ms
+      (was 1s, which batched the display). `docs/PRIVILEGES.md` covers the drop, `setcap`, macOS
+      and the defaults. 214 -> 220 tests, including a root-only loopback test that asserts the
+      drop and that packets still arrive afterwards (it ran here as root). Adds `libc` as a
+      direct dependency. Not verified: the `sudo` path (SUDO_UID) and macOS, neither available
+      in the dev container; the target-selection logic for them is unit-tested.
 - [ ] **12. Performance, measured.** Benchmarks on the real decode -> classify -> detect path,
       remove per-packet `String`/`Vec` allocations and the `unsafe get_unchecked`, record numbers
       in `docs/PERFORMANCE.md`; README claims must match them.

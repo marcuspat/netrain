@@ -9,12 +9,17 @@ use clap::Parser;
 /// BPF matches the EtherType at a fixed offset.
 pub const DEFAULT_FILTER: &str = "ip or ip6 or (vlan and (ip or ip6))";
 
+/// Enough for a full standard Ethernet frame, so hostnames in TLS and HTTP
+/// headers are visible; jumbo frames are truncated, which only costs payload
+/// we do not inspect.
+pub const DEFAULT_SNAPLEN: u32 = 1600;
+
 #[derive(Parser, Debug, Clone, PartialEq)]
 #[command(
     name = "netrain",
     version,
     about = "Matrix-style network packet monitor with threat detection",
-    after_help = "Controls:\n  q    Quit\n\nLive capture needs permission to open the interface: run with sudo, or grant the\nbinary cap_net_raw. --demo and --read need no privileges."
+    after_help = "Controls:\n  q    Quit\n\nLive capture needs permission to open the interface: run with sudo, or grant the\nbinary cap_net_raw (see docs/PRIVILEGES.md). Root is given up as soon as the capture\nis open. --demo and --read need no privileges."
 )]
 pub struct Cli {
     /// Capture on this interface instead of the auto-selected one
@@ -56,6 +61,18 @@ pub struct Cli {
     /// With --headless/--json: stop after this many packets
     #[arg(short = 'c', long, value_name = "N")]
     pub count: Option<u64>,
+
+    /// Capture traffic not addressed to this host too (off by default)
+    #[arg(long, conflicts_with_all = ["demo", "read"])]
+    pub promiscuous: bool,
+
+    /// Bytes captured per packet
+    #[arg(long, value_name = "BYTES", default_value_t = DEFAULT_SNAPLEN, value_parser = clap::value_parser!(u32).range(64..=262_144), conflicts_with_all = ["demo", "read"])]
+    pub snaplen: u32,
+
+    /// Stay root after the capture is open (by default root is dropped)
+    #[arg(long)]
+    pub keep_privileges: bool,
 
     /// Run with synthetic traffic (no root required)
     #[arg(long)]
@@ -158,6 +175,23 @@ mod tests {
             parse(&["--summary"]).unwrap_err().kind(),
             clap::error::ErrorKind::MissingRequiredArgument
         );
+    }
+
+    #[test]
+    fn capture_safety_defaults() {
+        let cli = parse(&[]).unwrap();
+        assert!(!cli.promiscuous, "promiscuous mode is opt-in");
+        assert!(!cli.keep_privileges, "root is dropped unless asked otherwise");
+        assert_eq!(cli.snaplen, DEFAULT_SNAPLEN);
+
+        let cli = parse(&["--promiscuous", "--snaplen", "256", "--keep-privileges"]).unwrap();
+        assert!(cli.promiscuous && cli.keep_privileges);
+        assert_eq!(cli.snaplen, 256);
+        use clap::error::ErrorKind::*;
+        assert_eq!(parse(&["--snaplen", "10"]).unwrap_err().kind(), ValueValidation);
+        assert_eq!(parse(&["--snaplen", "9999999"]).unwrap_err().kind(), ValueValidation);
+        assert_eq!(parse(&["--demo", "--promiscuous"]).unwrap_err().kind(), ArgumentConflict);
+        assert_eq!(parse(&["-r", "x.pcap", "--snaplen", "128"]).unwrap_err().kind(), ArgumentConflict);
     }
 
     #[test]

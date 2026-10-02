@@ -110,3 +110,57 @@ fn misused_flags_are_explained() {
     let (code, _, _) = run(&["--demo", "--json"]);
     assert_eq!(code, 2);
 }
+
+/// Live capture on loopback. Needs permission to capture, so it only runs
+/// where the test process is root (CI containers); elsewhere it is a no-op.
+#[cfg(target_os = "linux")]
+#[test]
+fn live_capture_drops_root_and_keeps_working() {
+    use std::net::UdpSocket;
+    use std::time::Duration;
+
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let is_root = status.lines().any(|l| l.starts_with("Uid:") && l.split_whitespace().nth(2) == Some("0"));
+    if !is_root {
+        eprintln!("skipped: not root");
+        return;
+    }
+
+    let child = Command::new(env!("CARGO_BIN_EXE_netrain"))
+        .args(["-i", "lo", "--json", "--count", "3", "--filter", "udp port 47999"])
+        .env_remove("SUDO_UID")
+        .env_remove("SUDO_GID")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // Keep sending until netrain has seen its three packets and exited.
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let sender = std::thread::spawn(move || {
+        for _ in 0..100 {
+            let _ = socket.send_to(b"netrain-test", "127.0.0.1:47999");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    let out = child.wait_with_output().unwrap();
+    drop(sender); // detached; it stops on its own
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    if stderr.contains("Cannot capture") || stderr.contains("Failed to list") || stderr.contains("not found") {
+        eprintln!("skipped: capture unavailable here: {stderr}");
+        return;
+    }
+    assert!(out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("capturing on lo, dropped root, running as uid 65534 gid 65534"),
+        "root must be given up once the capture is open: {stderr}"
+    );
+    // ...and packets still arrive after the drop.
+    let lines = json_lines(&stdout);
+    assert_eq!(lines.len(), 4, "{stdout}");
+    assert_eq!(lines[0]["dst_port"], 47999);
+    assert_eq!(lines[0]["src"], "127.0.0.1");
+    assert_eq!(lines[3]["packets"], 3);
+}

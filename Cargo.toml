@@ -26,6 +26,7 @@ rand = "0.8"
 once_cell = "1.19"
 clap = { version = "4", features = ["derive"] }
 signal-hook = "0.3"
+libc = "0.2.189"
 
 [dev-dependencies]
 mockall = "0.12"

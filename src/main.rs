@@ -31,6 +31,7 @@ use std::{
 };
 
 mod cli;
+mod privs;
 mod term;
 
 use cli::{Cli, Mode};
@@ -282,7 +283,11 @@ fn open_source(cli: &Cli) -> Result<Source> {
             let device = devices[index].clone();
             let name = device.name.clone();
             let mut cap = Capture::from_device(device)
-                .and_then(|builder| builder.promisc(true).snaplen(5000).timeout(1000).open())
+                // A short read timeout keeps the display and Ctrl-C responsive
+                // without the CPU cost of immediate mode under load.
+                .and_then(|builder| {
+                    builder.promisc(cli.promiscuous).snaplen(cli.snaplen as i32).timeout(100).open()
+                })
                 .map_err(|e| {
                     anyhow!(
                         "Cannot capture on {name}: {e}\n\
@@ -467,6 +472,9 @@ fn run(cli: &Cli) -> Result<()> {
         return print_interfaces();
     }
     let source = open_source(cli)?;
+    // The capture (or file) is open: root is not needed from here on, and
+    // everything below handles untrusted bytes.
+    let privileges = privs::drop_privileges(cli.keep_privileges).map_err(|e| anyhow!(e))?;
     if cli.summary {
         let Source::Replay { cap, link, name, .. } = source else {
             unreachable!("clap requires --read with --summary");
@@ -474,6 +482,10 @@ fn run(cli: &Cli) -> Result<()> {
         return print_summary(cap, link, &name, cli.json);
     }
     if cli.is_headless() {
+        if let Source::Live { name, .. } = &source {
+            // stderr, so it never mixes into the data on stdout.
+            eprintln!("netrain: capturing on {name}, {privileges}");
+        }
         return match source {
             Source::Live { cap, link, name } => run_headless(cli, cap, link, &name, true),
             Source::Replay { cap, link, name, .. } => run_headless(cli, cap, link, &name, false),
@@ -483,7 +495,10 @@ fn run(cli: &Cli) -> Result<()> {
     let demo_mode = matches!(source, Source::Demo);
     let source_label = match &source {
         Source::Demo => "demo".to_string(),
-        Source::Live { name, .. } => name.clone(),
+        Source::Live { name, .. } => match privileges {
+            privs::Privileges::Kept => format!("{name} (root)"),
+            _ => name.clone(),
+        },
         Source::Replay { name, .. } => format!("replay {name}"),
     };
 

@@ -165,6 +165,17 @@ netrain --version
 - **Threat Monitor** - Real-time security alerts
 - **Network Graphs** - Compact sparklines for each protocol type
 
+### Privileges
+
+Live capture needs permission to open the interface. netrain drops root as soon as the capture
+is open, so packets are parsed unprivileged, and it can run without `sudo` at all:
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin+eip "$(command -v netrain)"
+```
+
+Promiscuous mode is off by default (`--promiscuous` to enable). Details: [docs/PRIVILEGES.md](docs/PRIVILEGES.md).
+
 ## 🧪 Development
 
 ### Running Tests
