@@ -3,6 +3,11 @@
 [advisories]
 # Fail on any RustSec advisory, including unmaintained crates.
 yanked = "deny"
+ignore = [
+    # `paste` is unmaintained (not vulnerable). It is pulled in by ratatui and
+    # there is no replacement to move to until ratatui drops it.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 # Permissive licences only; netrain itself is MIT.

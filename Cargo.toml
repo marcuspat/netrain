@@ -2,7 +2,7 @@
 name = "netrain"
 version = "0.2.9"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.88"
 authors = ["NetRain Contributors"]
 description = "Matrix-style network packet monitor with IP tracking, threat detection and real-time visualization"
 license = "MIT"

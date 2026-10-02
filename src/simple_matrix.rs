@@ -86,10 +86,8 @@ impl SimpleMatrixRain {
         // Update existing columns - simple and clean
         let mut to_remove = Vec::new();
         for (x, column) in self.columns.iter_mut() {
-            // `%` rather than `is_multiple_of` keeps the minimum Rust version
-            // down; the zero check keeps it from dividing by zero.
-            #[allow(clippy::manual_is_multiple_of)]
-            let due = column.speed != 0 && self.tick % column.speed as u64 == 0;
+            // `is_multiple_of` is false for a zero speed, where `%` would panic.
+            let due = self.tick.is_multiple_of(column.speed as u64);
             if due {
                 column.update();
                 if column.should_reset(self.height) {

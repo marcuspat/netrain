@@ -70,7 +70,7 @@ Method, numbers and what is not measured: [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 ### From crates.io (Recommended)
 
-**Requirements**: Rust 1.70+ must be installed first
+**Requirements**: Rust 1.88+ must be installed first
 
 ```bash
 cargo install netrain
@@ -78,7 +78,7 @@ cargo install netrain
 
 ### From Source
 
-**Requirements**: Rust 1.70+ must be installed first
+**Requirements**: Rust 1.88+ must be installed first
 
 ```bash
 # Clone the repository
@@ -95,7 +95,7 @@ cargo build --release
 
 ### Install Rust (Required)
 
-NetRain requires Rust 1.70+ for both installation methods above.
+NetRain requires Rust 1.88+ for both installation methods above.
 
 ```bash
 # Install Rust via rustup (recommended)
