@@ -7,6 +7,7 @@ use netrain::{
     capture::{self, CaptureSink, DeviceInfo, ReplayPacer},
     decode::{LinkType, Transport},
     flows::human_bytes,
+    export::{self, Exporter, Format},
     pipeline::PacketEvent,
     replay::ReplayAnalyzer,
     simple_matrix::SimpleMatrixRain,
@@ -23,7 +24,8 @@ use ratatui::{
 use std::{
     collections::VecDeque,
     process::ExitCode,
-    sync::{Mutex, atomic::{AtomicUsize, Ordering}},
+    io,
+    sync::{Arc, Mutex, atomic::{AtomicBool, AtomicUsize, Ordering}},
     thread,
     time::{Duration, Instant},
 };
@@ -327,10 +329,7 @@ fn run_replay(mut cap: Capture<Offline>, link: LinkType, name: String, speed: f6
     loop {
         match cap.next_packet() {
             Ok(packet) => {
-                let ts = packet.header.ts;
-                // timeval field widths differ between platforms.
-                #[allow(clippy::unnecessary_cast)]
-                let micros = (ts.tv_sec as i64).saturating_mul(1_000_000).saturating_add(ts.tv_usec as i64);
+                let micros = header_micros(packet.header);
                 let wait = pacer.delay_before(micros);
                 if !wait.is_zero() {
                     thread::sleep(wait);
@@ -353,24 +352,98 @@ fn run_replay(mut cap: Capture<Offline>, link: LinkType, name: String, speed: f6
     }
 }
 
+/// Microseconds since the epoch from a pcap packet header.
+fn header_micros(header: &pcap::PacketHeader) -> i64 {
+    // timeval field widths differ between platforms.
+    #[allow(clippy::unnecessary_cast)]
+    let (secs, micros) = (header.ts.tv_sec as i64, header.ts.tv_usec as i64);
+    secs.saturating_mul(1_000_000).saturating_add(micros)
+}
+
 /// `--read FILE --summary`: analyse the capture on its own timestamps and
 /// print the result. Deterministic; no terminal needed.
-fn print_summary(mut cap: Capture<Offline>, link: LinkType, name: &str) -> Result<()> {
+fn print_summary(mut cap: Capture<Offline>, link: LinkType, name: &str, json: bool) -> Result<()> {
     let mut analyzer = ReplayAnalyzer::default();
     loop {
         match cap.next_packet() {
             Ok(packet) => {
-                let ts = packet.header.ts;
-                // timeval field widths differ between platforms.
-                #[allow(clippy::unnecessary_cast)]
-                let micros = (ts.tv_sec as i64).saturating_mul(1_000_000).saturating_add(ts.tv_usec as i64);
-                analyzer.feed(link, micros, packet.data, packet.header.len as usize);
+                analyzer.feed(link, header_micros(packet.header), packet.data, packet.header.len as usize);
             }
             Err(pcap::Error::NoMorePackets) => break,
             Err(e) => return Err(anyhow!("Reading {name} failed: {e}")),
         }
     }
-    print!("{}", analyzer.finish());
+    let summary = analyzer.finish();
+    if json {
+        println!("{}", export::summary_json(&summary, 0));
+    } else {
+        print!("{summary}");
+    }
+    Ok(())
+}
+
+/// A closed pipe downstream (`netrain --json | head`) is a normal way for a
+/// stream to end, not an error.
+fn ignore_broken_pipe(result: io::Result<()>) -> Result<bool> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(false),
+        Err(e) => Err(anyhow!("writing output failed: {e}")),
+    }
+}
+
+/// `--headless` / `--json`: stream one line per event to stdout until the
+/// source ends, `--count` is reached, the reader goes away, or we are
+/// interrupted - then print the summary.
+fn run_headless<T: Activated + ?Sized>(
+    cli: &Cli,
+    mut cap: Capture<T>,
+    link: LinkType,
+    name: &str,
+    live: bool,
+) -> Result<()> {
+    // Ctrl-C / SIGTERM end the run cleanly so the summary is still written.
+    let stop = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        signal_hook::flag::register(signal, Arc::clone(&stop))
+            .map_err(|e| anyhow!("cannot install signal handler: {e}"))?;
+    }
+
+    let format = if cli.json { Format::Json } else { Format::Text };
+    let stdout = io::stdout();
+    let mut exporter = Exporter::new(io::BufWriter::new(stdout.lock()), format, cli.alerts_only);
+    let mut dropped = 0u64;
+    let mut last_flush = Instant::now();
+
+    while !stop.load(Ordering::Relaxed) {
+        match cap.next_packet() {
+            Ok(packet) => {
+                let fed = exporter.feed(link, header_micros(packet.header), packet.data, packet.header.len as usize);
+                if !ignore_broken_pipe(fed)? {
+                    return Ok(());
+                }
+                if cli.count.is_some_and(|limit| exporter.packets() >= limit) {
+                    break;
+                }
+            }
+            Err(pcap::Error::TimeoutExpired) => {}
+            Err(pcap::Error::NoMorePackets) => break,
+            Err(e) => return Err(anyhow!("Capture on {name} stopped: {e}")),
+        }
+        // Live output should appear promptly even when traffic is slow.
+        if live && last_flush.elapsed() >= Duration::from_millis(200) {
+            if !ignore_broken_pipe(exporter.flush())? {
+                return Ok(());
+            }
+            last_flush = Instant::now();
+        }
+    }
+    if live {
+        if let Ok(stats) = cap.stats() {
+            dropped = u64::from(stats.dropped) + u64::from(stats.if_dropped);
+        }
+    }
+    ignore_broken_pipe(exporter.finish(dropped).map(|_| ()))?;
     Ok(())
 }
 
@@ -389,6 +462,7 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<()> {
+    cli.validate().map_err(|e| anyhow!(e))?;
     if cli.list_interfaces {
         return print_interfaces();
     }
@@ -397,7 +471,14 @@ fn run(cli: &Cli) -> Result<()> {
         let Source::Replay { cap, link, name, .. } = source else {
             unreachable!("clap requires --read with --summary");
         };
-        return print_summary(cap, link, &name);
+        return print_summary(cap, link, &name, cli.json);
+    }
+    if cli.is_headless() {
+        return match source {
+            Source::Live { cap, link, name } => run_headless(cli, cap, link, &name, true),
+            Source::Replay { cap, link, name, .. } => run_headless(cli, cap, link, &name, false),
+            Source::Demo => unreachable!("clap rejects --demo with --headless/--json"),
+        };
     }
     let demo_mode = matches!(source, Source::Demo);
     let source_label = match &source {

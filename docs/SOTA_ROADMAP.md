@@ -124,8 +124,15 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       formatting for the unused rain tracker is gone. 187 -> 197 tests. Driven in a pty: help,
       pause, filter, quit, shrink-below-minimum and grow all behaved. Not done: threat colouring
       inside the rain itself (the border already turns red).
-- [ ] **10. Machine-readable output.** `--json` NDJSON stream of packets/alerts, `--headless` for
-      servers and pipes, summary on exit; schema documented and tested.
+- [x] **10. Machine-readable output** (`HASH`). `--json` streams NDJSON (`packet`, `alert`
+      raised/cleared, final `summary`) and `--headless` prints the same as greppable text; both
+      run without a terminal on live capture or `--read`. `--alerts-only`, `--count N`, and
+      `--summary --json` for a single summary object. Ctrl-C/SIGTERM still write the summary; a
+      reader that goes away (`| head`) ends the run quietly with exit 0. For a file the output is
+      byte-identical across runs. Schema in `docs/JSON_OUTPUT.md` (version 1), pinned by tests.
+      197 -> 214 tests. Checked live in the dev container: `--json --alerts-only` under SIGINT
+      printed the summary with real traffic. Adds `signal-hook` as a direct dependency (it was
+      already in the tree via crossterm). `--demo` is not supported with these modes.
 - [ ] **11. Least privilege.** Open capture then drop root; document `setcap cap_net_raw,
       cap_net_admin+eip`; smaller snaplen; immediate mode; promiscuous off unless requested.
 - [ ] **12. Performance, measured.** Benchmarks on the real decode -> classify -> detect path,

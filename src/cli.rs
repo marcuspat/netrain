@@ -41,6 +41,22 @@ pub struct Cli {
     #[arg(long, requires = "read")]
     pub summary: bool,
 
+    /// No UI: print one line per packet and alert to stdout
+    #[arg(long, conflicts_with = "demo")]
+    pub headless: bool,
+
+    /// No UI: print newline-delimited JSON (see docs/JSON_OUTPUT.md)
+    #[arg(long, conflicts_with = "demo")]
+    pub json: bool,
+
+    /// With --headless/--json: print alerts and the summary, not every packet
+    #[arg(long)]
+    pub alerts_only: bool,
+
+    /// With --headless/--json: stop after this many packets
+    #[arg(short = 'c', long, value_name = "N")]
+    pub count: Option<u64>,
+
     /// Run with synthetic traffic (no root required)
     #[arg(long)]
     pub demo: bool,
@@ -68,6 +84,22 @@ pub enum Mode {
 }
 
 impl Cli {
+    /// Is output going to stdout as lines rather than to the TUI?
+    pub fn is_headless(&self) -> bool {
+        self.headless || self.json
+    }
+
+    /// Checks clap's declarative rules cannot express.
+    pub fn validate(&self) -> Result<(), String> {
+        if (self.alerts_only || self.count.is_some()) && !self.is_headless() {
+            return Err("--alerts-only and --count need --headless or --json".to_string());
+        }
+        if self.summary && self.headless && !self.json {
+            return Err("--summary already prints text; use it alone or with --json".to_string());
+        }
+        Ok(())
+    }
+
     pub fn mode(&self) -> Mode {
         if self.demo {
             Mode::Demo
@@ -125,6 +157,25 @@ mod tests {
         assert_eq!(
             parse(&["--summary"]).unwrap_err().kind(),
             clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+
+    #[test]
+    fn headless_flags() {
+        let cli = parse(&["--json", "-c", "100", "--alerts-only"]).unwrap();
+        assert!(cli.is_headless() && cli.json && cli.alerts_only);
+        assert_eq!(cli.count, Some(100));
+        assert!(cli.validate().is_ok());
+        assert!(parse(&["--headless", "-i", "eth0"]).unwrap().is_headless());
+        assert!(!parse(&[]).unwrap().is_headless());
+
+        assert!(parse(&["--alerts-only"]).unwrap().validate().is_err());
+        assert!(parse(&["--count", "5"]).unwrap().validate().is_err());
+        assert!(parse(&["-r", "x.pcap", "--summary", "--headless"]).unwrap().validate().is_err());
+        assert!(parse(&["-r", "x.pcap", "--summary", "--json"]).unwrap().validate().is_ok());
+        assert_eq!(
+            parse(&["--demo", "--json"]).unwrap_err().kind(),
+            clap::error::ErrorKind::ArgumentConflict
         );
     }
 

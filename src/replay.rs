@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use crate::alerts::{AlertKind, EngineConfig, ThreatEngine};
+use crate::alerts::{Alert, AlertKind, EngineConfig, ThreatEngine};
 use crate::decode::LinkType;
 use crate::flows::{human_bytes, FlowTable};
 use crate::pcapfile::{PcapError, PcapReader};
@@ -96,6 +96,20 @@ pub struct ReplayAnalyzer {
     epoch: Instant,
     first_micros: Option<i64>,
     last_micros: i64,
+    /// Alerts active as of the last packet, by key.
+    active: BTreeMap<String, Alert>,
+}
+
+/// What one packet contributed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Observation {
+    pub event: crate::pipeline::PacketEvent,
+    /// Hostname revealed by the packet, if any.
+    pub insight: Option<crate::inspect::Insight>,
+    /// Alerts that became active with this packet.
+    pub raised: Vec<Alert>,
+    /// Alerts that were active before this packet and have now expired.
+    pub cleared: Vec<Alert>,
 }
 
 impl Default for ReplayAnalyzer {
@@ -122,11 +136,15 @@ impl ReplayAnalyzer {
             epoch: Instant::now(),
             first_micros: None,
             last_micros: 0,
+            active: BTreeMap::new(),
         }
     }
 
     /// Analyse one packet captured at `ts_micros`.
-    pub fn feed(&mut self, link: LinkType, ts_micros: i64, data: &[u8], wire_len: usize) {
+    ///
+    /// Returns what the packet was and which alerts it raised or let lapse,
+    /// or `None` when it could not be decoded.
+    pub fn feed(&mut self, link: LinkType, ts_micros: i64, data: &[u8], wire_len: usize) -> Option<Observation> {
         let first = *self.first_micros.get_or_insert(ts_micros);
         // Timestamps can go backwards in real captures; never move the clock back.
         self.last_micros = self.last_micros.max(ts_micros - first);
@@ -134,7 +152,7 @@ impl ReplayAnalyzer {
 
         let Ok((event, decoded)) = observe(link, data, wire_len) else {
             self.summary.undecodable += 1;
-            return;
+            return None;
         };
         self.summary.packets += 1;
         self.summary.bytes += event.wire_len as u64;
@@ -142,16 +160,39 @@ impl ReplayAnalyzer {
 
         self.engine.observe(&decoded, now);
         self.flows.observe(&event, now);
-        if let Some(insight) = crate::inspect::insight(&decoded) {
-            self.summary.hostnames.insert(insight.name);
+        let insight = crate::inspect::insight(&decoded);
+        if let Some(insight) = &insight {
+            self.summary.hostnames.insert(insight.name.clone());
         }
+
+        // Diff the active alerts against the previous packet's to find what
+        // was just raised and what has lapsed.
+        let mut raised = Vec::new();
+        let mut still_active = BTreeMap::new();
         for alert in self.engine.active_alerts(now) {
-            self.summary.alerts.insert(alert_key(alert.kind, alert.source, alert.target));
+            let key = alert_key(alert.kind, alert.source, alert.target);
+            self.summary.alerts.insert(key.clone());
+            if !self.active.contains_key(&key) {
+                raised.push(alert.clone());
+            }
+            still_active.insert(key, alert.clone());
         }
+        let cleared: Vec<Alert> = std::mem::replace(&mut self.active, still_active.clone())
+            .into_iter()
+            .filter(|(key, _)| !still_active.contains_key(key))
+            .map(|(_, alert)| alert)
+            .collect();
+
         let level = self.engine.threat_level(now);
         if self.summary.peak_level.is_none_or(|peak| level > peak) {
             self.summary.peak_level = Some(level);
         }
+        Some(Observation { event, insight, raised, cleared })
+    }
+
+    /// Packets decoded so far.
+    pub fn packets(&self) -> u64 {
+        self.summary.packets
     }
 
     pub fn finish(mut self) -> ReplaySummary {
@@ -245,6 +286,32 @@ mod tests {
         // The same 40 ports, one every 5 minutes: not a scan.
         let slow = analyze_pcap(&build(300_000_000)).unwrap();
         assert!(slow.alerts.is_empty(), "{:?}", slow.alerts);
+    }
+
+    #[test]
+    fn feed_reports_each_alert_once_when_raised_and_once_when_cleared() {
+        let mut a = ReplayAnalyzer::default();
+        let mut raised = 0;
+        let mut cleared = Vec::new();
+        for port in 1..=40u16 {
+            let f = eth_tcp([203, 0, 113, 7], [10, 0, 0, 1], 40000, port, TcpFlags::SYN, b"");
+            let obs = a.feed(LinkType::Ethernet, i64::from(port) * 10_000, &f, f.len()).unwrap();
+            raised += obs.raised.len();
+            assert!(obs.cleared.is_empty());
+            if port == 20 {
+                assert_eq!(obs.raised[0].summary(), "Port scan 203.0.113.7 -> 10.0.0.1 (20 ports in 60s)");
+            }
+        }
+        assert_eq!(raised, 1, "a continuing scan is one alert, not twenty-one");
+
+        // Two minutes of silence later an unrelated packet shows the alert has lapsed.
+        let f = eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b"q");
+        let obs = a.feed(LinkType::Ethernet, 120_000_000, &f, f.len()).unwrap();
+        cleared.extend(obs.cleared);
+        assert_eq!(cleared.len(), 1);
+        assert_eq!(cleared[0].kind, AlertKind::PortScan);
+        assert!(obs.raised.is_empty());
+        assert_eq!(a.feed(LinkType::Ethernet, 120_000_001, &[0; 3], 3), None, "undecodable");
     }
 
     #[test]
