@@ -91,7 +91,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       costs amortised O(1) per packet; idle flows expire after 60s, closed ones after 5s. The log
       panel shows top talkers and top flows; `--summary` reports flow count and top talkers.
       161 -> 169 tests.
-- [x] **7. Application-layer insight** (`HASH`). `inspect` module: TLS ClientHello SNI, HTTP
+- [x] **7. Application-layer insight** (`65da3c6`). `inspect` module: TLS ClientHello SNI, HTTP
       `Host` header and DNS question names, each validated to hostname characters only so a
       crafted packet cannot put terminal escape codes on screen. The packet log appends
       `sni=`/`host=`/`dns=`; flows carry their server name. DNS answers (A/AAAA, with compression
