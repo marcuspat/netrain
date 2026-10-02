@@ -6,6 +6,7 @@ use crossterm::{
 use netrain::{
     capture::{self, CaptureSink, DeviceInfo, ReplayPacer},
     decode::{LinkType, Transport},
+    flows::human_bytes,
     pipeline::PacketEvent,
     replay::ReplayAnalyzer,
     simple_matrix::SimpleMatrixRain,
@@ -121,6 +122,7 @@ fn run_demo(sink: CaptureSink) {
                 src_port: None,
                 dst_port: None,
                 protocol: protocols[rand::random::<usize>() % protocols.len()],
+                ip_proto: 0,
                 transport: Transport::Other,
                 wire_len: size,
             };
@@ -570,7 +572,6 @@ fn run(cli: &Cli) -> Result<()> {
                 vec![ListItem::new(waiting).style(Style::default().fg(Color::DarkGray))]
             } else {
                 // Get active IPs and add them at the top
-                let active_ips = rain.get_active_ips();
                 let mut items = Vec::new();
                 if let Some(done) = &app.finished {
                     items.push(ListItem::new(done.clone()).style(
@@ -578,19 +579,22 @@ fn run(cli: &Cli) -> Result<()> {
                     ));
                 }
                 
-                // Add top 3 most active IPs if any exist
-                if !active_ips.is_empty() {
-                    items.push(ListItem::new("--- TOP ACTIVE IPs ---").style(
+                // Top talkers by bytes, then the heaviest flows.
+                let talkers = app.flows.top_talkers(3);
+                if !talkers.is_empty() {
+                    items.push(ListItem::new("--- TOP TALKERS (bytes) ---").style(
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                     ));
-                    
-                    for (i, (ip, count)) in active_ips.iter().enumerate().take(3) {
-                        let ip_entry = format!("#{} {} ({} pkts)", i + 1, ip, count);
-                        items.push(ListItem::new(ip_entry).style(
-                            Style::default().fg(Color::Cyan)
-                        ));
+                    for (i, (ip, host)) in talkers.iter().enumerate() {
+                        let entry = format!("#{} {} {} ({} pkts)", i + 1, ip, human_bytes(host.bytes), host.packets);
+                        items.push(ListItem::new(entry).style(Style::default().fg(Color::Cyan)));
                     }
-                    
+                    items.push(ListItem::new(format!("--- TOP FLOWS ({} active) ---", app.flows.len())).style(
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    ));
+                    for flow in app.flows.top_flows(3) {
+                        items.push(ListItem::new(flow.summary()).style(Style::default().fg(Color::Cyan)));
+                    }
                     items.push(ListItem::new("--- PACKETS ---").style(
                         Style::default().fg(Color::DarkGray)
                     ));
@@ -598,7 +602,7 @@ fn run(cli: &Cli) -> Result<()> {
                 
                 // Add packet log entries - fill the expanded space
                 let packet_entries: Vec<ListItem> = log.iter()
-                    .take(if !active_ips.is_empty() { 35 } else { 40 })
+                    .take(if !talkers.is_empty() { 31 } else { 40 })
                     .enumerate()
                     .map(|(i, entry)| {
                     let color = if entry.contains("HTTP ") {

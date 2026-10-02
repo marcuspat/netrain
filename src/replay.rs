@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use crate::alerts::{AlertKind, EngineConfig, ThreatEngine};
 use crate::decode::LinkType;
+use crate::flows::{human_bytes, FlowTable};
 use crate::pcapfile::{PcapError, PcapReader};
 use crate::pipeline::observe;
 use crate::{Protocol, ThreatLevel};
@@ -32,6 +33,10 @@ pub struct ReplaySummary {
     pub peak_level: Option<ThreatLevel>,
     /// Time between the first and last packet.
     pub duration: Duration,
+    /// Distinct flows (bidirectional 5-tuples) seen.
+    pub flows: u64,
+    /// The busiest hosts by bytes sent plus received: (address, bytes, packets).
+    pub top_talkers: Vec<(std::net::IpAddr, u64, u64)>,
 }
 
 impl ReplaySummary {
@@ -50,10 +55,17 @@ impl fmt::Display for ReplaySummary {
         writeln!(f, "undecodable:  {}", self.undecodable)?;
         writeln!(f, "bytes:        {}", self.bytes)?;
         writeln!(f, "duration:     {:.3}s", self.duration.as_secs_f64())?;
+        writeln!(f, "flows:        {}", self.flows)?;
         writeln!(f, "peak threat:  {:?}", self.peak())?;
         writeln!(f, "protocols:")?;
         for (label, count) in &self.protocols {
             writeln!(f, "  {label:<6}{count}")?;
+        }
+        if !self.top_talkers.is_empty() {
+            writeln!(f, "top talkers:")?;
+            for (ip, bytes, packets) in &self.top_talkers {
+                writeln!(f, "  {ip} {} ({packets} pkts)", human_bytes(*bytes))?;
+            }
         }
         if self.alerts.is_empty() {
             writeln!(f, "alerts:       none")?;
@@ -71,6 +83,7 @@ impl fmt::Display for ReplaySummary {
 #[derive(Debug)]
 pub struct ReplayAnalyzer {
     engine: ThreatEngine,
+    flows: FlowTable,
     summary: ReplaySummary,
     epoch: Instant,
     first_micros: Option<i64>,
@@ -96,6 +109,7 @@ impl ReplayAnalyzer {
     pub fn new(config: EngineConfig) -> Self {
         Self {
             engine: ThreatEngine::new(config),
+            flows: FlowTable::default(),
             summary: ReplaySummary::default(),
             epoch: Instant::now(),
             first_micros: None,
@@ -119,6 +133,7 @@ impl ReplayAnalyzer {
         *self.summary.protocols.entry(event.protocol.label()).or_insert(0) += 1;
 
         self.engine.observe(&decoded, now);
+        self.flows.observe(&event, now);
         for alert in self.engine.active_alerts(now) {
             self.summary.alerts.insert(alert_key(alert.kind, alert.source, alert.target));
         }
@@ -130,6 +145,9 @@ impl ReplayAnalyzer {
 
     pub fn finish(mut self) -> ReplaySummary {
         self.summary.duration = Duration::from_micros(self.last_micros as u64);
+        self.summary.flows = self.flows.total_flows();
+        self.summary.top_talkers =
+            self.flows.top_talkers(5).into_iter().map(|(ip, h)| (ip, h.bytes, h.packets)).collect();
         self.summary
     }
 }
@@ -191,6 +209,9 @@ mod tests {
         assert_eq!(a.count(Protocol::HTTPS), 1);
         assert_eq!(a.count(Protocol::SSH), 0);
         assert_eq!(a.duration, Duration::from_micros(600_000));
+        assert_eq!(a.flows, 2);
+        assert_eq!(a.top_talkers[0].0.to_string(), "10.0.0.2", "took part in both flows");
+        assert!(a.to_string().contains("flows:        2"));
         assert_eq!(a.peak(), ThreatLevel::Low);
         assert!(a.alerts.is_empty());
         assert!(a.to_string().contains("alerts:       none"));

@@ -151,6 +151,8 @@ fn normal_traffic_is_classified_and_raises_nothing() {
     assert_eq!(s.count(Protocol::HTTP), 4);
     assert_eq!(s.count(Protocol::SSH), 2);
     assert_eq!(s.count(Protocol::TCP) + s.count(Protocol::UDP) + s.count(Protocol::Unknown), 0);
+    assert_eq!(s.flows, 4, "DNS, TLS, HTTP and SSH conversations");
+    assert_eq!(s.top_talkers[0].0.to_string(), "192.168.1.10", "the client is in every flow");
     assert!(s.alerts.is_empty(), "false positive on ordinary traffic: {:?}", s.alerts);
     assert_eq!(s.peak(), ThreatLevel::Low);
 }
@@ -169,6 +171,8 @@ fn syn_flood_is_detected_on_the_victim() {
     assert_eq!(s.packets, 150);
     assert_eq!(s.count(Protocol::HTTP), 150);
     assert_eq!(s.alerts.iter().collect::<Vec<_>>(), ["SYN flood on 10.0.0.80"]);
+    assert_eq!(s.flows, 150, "one flow per spoofed source");
+    assert_eq!(s.top_talkers[0].0.to_string(), "10.0.0.80", "the victim received everything");
     assert_eq!(s.peak(), ThreatLevel::Critical);
 }
 

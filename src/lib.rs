@@ -4,6 +4,7 @@ pub mod alerts;
 pub mod capture;
 pub mod classify;
 pub mod decode;
+pub mod flows;
 pub mod dns;
 pub mod pipeline;
 pub mod packet;

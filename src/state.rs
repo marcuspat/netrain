@@ -6,6 +6,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use crate::capture::{CaptureMsg, PacketRecord};
+use crate::flows::FlowTable;
 use crate::pipeline::PacketEvent;
 use crate::protocol_activity::ProtocolActivityTracker;
 use crate::threat_detection::ThreatDetector;
@@ -20,6 +21,7 @@ pub struct AppState {
     pub stats: ProtocolStats,
     pub activity: ProtocolActivityTracker,
     pub detector: ThreatDetector,
+    pub flows: FlowTable,
     /// Newest first.
     pub packet_log: VecDeque<String>,
     /// Newest first.
@@ -45,6 +47,7 @@ impl AppState {
             stats: ProtocolStats::new(),
             activity: ProtocolActivityTracker::new(),
             detector: ThreatDetector::new(),
+            flows: FlowTable::default(),
             packet_log: VecDeque::with_capacity(LOG_LINES + 1),
             raw_packets: VecDeque::with_capacity(RAW_SAMPLES + 1),
             capture_error: None,
@@ -63,6 +66,7 @@ impl AppState {
         self.stats.add_packet(event.protocol, event.wire_len);
         self.activity.record_packet(event.protocol);
         self.detector.analyze_event_at(event, now);
+        self.flows.observe(event, now);
 
         self.packet_log.push_front(event.log_line(timestamp));
         self.packet_log.truncate(LOG_LINES);
@@ -102,6 +106,7 @@ impl AppState {
         self.packet_rate = self.packets_this_second;
         self.packets_this_second = 0;
         self.detector.expire();
+        self.flows.expire(Instant::now());
     }
 }
 
@@ -138,6 +143,8 @@ mod tests {
         assert_eq!(state.packet_log[1], "[12:00:00] HTTPS 10.0.0.2 -> 10.0.0.1 [74B]");
         assert_eq!(state.raw_packets[0], dns[..]);
         assert_eq!(state.capture_error.as_deref(), Some("boom"));
+        assert_eq!(state.flows.len(), 2);
+        assert_eq!(state.flows.top_talkers(1)[0].0.to_string(), "10.0.0.2");
 
         state.tick_second();
         assert_eq!(state.packet_rate, 2);

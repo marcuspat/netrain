@@ -15,6 +15,8 @@ pub struct PacketEvent {
     pub src_port: Option<u16>,
     pub dst_port: Option<u16>,
     pub protocol: Protocol,
+    /// IP protocol number (6 TCP, 17 UDP, ...).
+    pub ip_proto: u8,
     /// Transport header summary (ports, TCP flags) for threat analysis.
     pub transport: Transport,
     /// Length on the wire, which is larger than the captured length when the
@@ -30,6 +32,7 @@ impl PacketEvent {
             src_port: decoded.src_port(),
             dst_port: decoded.dst_port(),
             protocol: classify(decoded),
+            ip_proto: decoded.ip_proto,
             transport: decoded.transport,
             wire_len: wire_len.max(decoded.captured_len),
         }
