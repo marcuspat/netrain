@@ -74,7 +74,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       binary. Smoke-tested in a pty: replaying a synthetic 40-port scan raised the port-scan alert.
       Finding: `tests/fixtures/*.pcap` are not valid pcap files (ASCII `PCAP` magic); item 5 must
       generate real ones.
-- [x] **5. Offline replay and golden tests** (`HASH`). `pcapfile`: pure-Rust classic pcap
+- [x] **5. Offline replay and golden tests** (`b4ce58c`). `pcapfile`: pure-Rust classic pcap
       reader/writer (both endiannesses, micro/nano), property-tested. `replay::ReplayAnalyzer`
       runs the live pipeline on the capture's own timestamps, so a file always yields the same
       summary. `netrain --read FILE --summary` prints it without a terminal. The four fixtures
