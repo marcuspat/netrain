@@ -112,7 +112,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       `ip_proto`); the default interface prefers a live loopback over a dead Ethernet port; and a
       regression test pins that an answering server is not flagged while the target table churns
       (the reported false positive did not reproduce). 181 -> 187 tests.
-- [x] **9. UI** (`HASH`). Keys: space/p pause (the log and hex dump hold still; statistics, flows
+- [x] **9. UI** (`d7e2361`). Keys: space/p pause (the log and hex dump hold still; statistics, flows
       and threat detection keep running and the bar shows how many packets were skipped), f cycle
       a protocol filter over the log, a show all, ?/h help overlay, esc dismiss, q quit. The rain
       follows terminal resizes; below 80x24 a clear "too small" message replaces the layout.
