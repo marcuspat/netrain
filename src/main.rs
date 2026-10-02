@@ -509,7 +509,7 @@ fn run(cli: &Cli) -> Result<()> {
     if !cli.no_splash {
     // Show ASCII logo as splash screen
     terminal.draw(|f| {
-        let area = f.size();
+        let area = f.area();
         
         // Clear background first
         let clear_block = Block::default()
@@ -663,7 +663,7 @@ fn run(cli: &Cli) -> Result<()> {
         // Render with simplified layout
         terminal.draw(|f| {
             // Below the minimum size the panels would overlap into nonsense.
-            let full = f.size();
+            let full = f.area();
             if full.width < MIN_COLS || full.height < MIN_ROWS {
                 let message = format!(
                     "Terminal too small: {}x{}\nnetrain needs at least {}x{}\n(q to quit)",
@@ -684,7 +684,7 @@ fn run(cli: &Cli) -> Result<()> {
                     Constraint::Percentage(70),
                     Constraint::Percentage(30),
                 ])
-                .split(f.size());
+                .split(f.area());
 
             // Matrix rain with packet log and data overlays
             let matrix_chunks = Layout::default()

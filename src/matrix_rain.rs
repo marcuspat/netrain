@@ -369,8 +369,9 @@ impl Widget for &mut MatrixRain {
                         (255.0 * (1.0 - self.screen_flash)) as u8,
                         (255.0 * (1.0 - self.screen_flash)) as u8,
                     );
-                    buf.get_mut(area.x + x, area.y + y)
-                        .set_bg(flash_color);
+                    if let Some(cell) = buf.cell_mut((area.x + x, area.y + y)) {
+                        cell.set_bg(flash_color);
+                    }
                 }
             }
         }

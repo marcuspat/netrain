@@ -209,10 +209,10 @@ impl Widget for &SimpleMatrixRain {
                         Color::Green
                     };
                     
-                    if area.x + col_x < buf.area.width && area.y + y < buf.area.height {
-                        buf.get_mut(area.x + col_x, area.y + y)
-                            .set_char(ch)
-                            .set_style(Style::default().fg(color));
+                    // `cell_mut` is `None` outside the buffer, so a column that
+                    // no longer fits after a resize is skipped, never a panic.
+                    if let Some(cell) = buf.cell_mut((area.x + col_x, area.y + y)) {
+                        cell.set_char(ch).set_style(Style::default().fg(color));
                     }
                 }
             }

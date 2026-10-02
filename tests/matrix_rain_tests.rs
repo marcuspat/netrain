@@ -154,7 +154,7 @@ fn test_matrix_rain_render() {
     let mut terminal = Terminal::new(backend).unwrap();
     
     terminal.draw(|f| {
-        let area = f.size();
+        let area = f.area();
         f.render_widget(&mut matrix, area);
     }).unwrap();
     
