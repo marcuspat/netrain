@@ -83,7 +83,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       protocol counts and alerts per fixture, and that the binary (via libpcap) agrees with the
       library. Bug found by them: the default BPF `ip or ip6` dropped every VLAN-tagged frame;
       it is now `ip or ip6 or (vlan and (ip or ip6))`. 144 -> 161 tests.
-- [x] **6. Flow table** (`HASH`). `flows::FlowTable`: bidirectional 5-tuple flows with
+- [x] **6. Flow table** (`30842e5`). `flows::FlowTable`: bidirectional 5-tuple flows with
       per-direction packets/bytes, first/last seen, the most specific protocol seen, and a coarse
       TCP state (opening, open, closing, reset). Per-host totals give top talkers ranked by bytes
       (the old list ranked by packet count and replaced entries arbitrarily). Capped at 8192 flows
