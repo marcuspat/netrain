@@ -48,13 +48,11 @@ pub fn random_matrix_char_optimized(rng: &mut impl rand::Rng, char_set: super::m
         CharacterSet::Mixed => &*MIXED_CHARS_VEC,
     };
     
-    if chars.is_empty() {
-        '?'
-    } else {
-        unsafe {
-            // Safe because we check is_empty above
-            *chars.get_unchecked(rng.gen_range(0..chars.len()))
-        }
+    // Bounds-checked: the check is negligible next to the RNG call, and this
+    // crate has no need for `unsafe`.
+    match chars.len() {
+        0 => '?',
+        len => chars[rng.gen_range(0..len)],
     }
 }
 

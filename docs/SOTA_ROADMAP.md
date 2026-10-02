@@ -144,9 +144,16 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       drop and that packets still arrive afterwards (it ran here as root). Adds `libc` as a
       direct dependency. Not verified: the `sudo` path (SUDO_UID) and macOS, neither available
       in the dev container; the target-selection logic for them is unit-tested.
-- [ ] **12. Performance, measured.** Benchmarks on the real decode -> classify -> detect path,
-      remove per-packet `String`/`Vec` allocations and the `unsafe get_unchecked`, record numbers
-      in `docs/PERFORMANCE.md`; README claims must match them.
+- [x] **12. Performance, measured** (`HASH`). `benches/pipeline.rs` measures the real path
+      (decode, classify, hostname extraction, channel, state, threat engine, flows) on a traffic
+      mix and under attack. The benchmarks found the threat engine collapsing under exactly what
+      it detects: 28 K packets/s in a spoofed SYN flood and 49 K in a port scan. Fixed with
+      incremental distinct-port/host counters (O(1) per packet), batch eviction, in-place alert
+      refresh and revision-gated alert diffing: now 1.2 M and 1.8 M packets/s; headless analysis
+      of a flood 26 K -> 544 K. Numbers and method in `docs/PERFORMANCE.md`; the README
+      performance section now quotes them instead of the old "29ns" and "zero-allocation"
+      claims. The last `unsafe` (`get_unchecked`) is gone. 220 -> 222 tests. Not done: the legacy
+      `Packet` struct still carries `String` addresses; the live path does not use it.
 - [ ] **13. Fuzzing and hardening.** `cargo-fuzz` targets for decoder, DNS and TLS parsers with a
       seed corpus; `#![forbid(unsafe_code)]` in the library; remove remaining panics on input.
 - [ ] **14. CI and supply chain.** GitHub Actions: fmt, clippy `-D warnings`, tests on Linux and

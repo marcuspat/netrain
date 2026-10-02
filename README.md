@@ -25,9 +25,16 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ## ⚡ Performance
 
-- **Real-time rendering** with particle effects and smooth animation
-- **Sub-millisecond threat-detection logic** — the detection function itself benchmarks at 29ns per packet in isolation; this is a micro-benchmark of one function, not an end-to-end capture-to-alert measurement including pcap I/O and rendering
-- **Zero-allocation** hot paths for maximum efficiency
+Benchmarks of netrain's own code on in-memory packets (2 vCPU Xeon @ 2.10GHz, one thread);
+they exclude libpcap, the kernel and terminal rendering:
+
+- **Decode**: 20 ns per packet. **Decode, classify and extract hostnames**: 89 ns per packet.
+- **Full path to the UI state** (statistics, flows, threat engine, log line): about 1 M packets/s.
+- **Under attack**: the threat engine handles a SYN flood from 20,000 spoofed sources at
+  1.2 M packets/s, and a single-source port scan at 1.8 M packets/s.
+- **Bounded memory**: every table is capped; the demo runs at about 10 MB.
+
+Method, numbers and what is not measured: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## ✨ Features
 

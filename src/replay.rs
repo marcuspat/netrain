@@ -96,9 +96,17 @@ pub struct ReplayAnalyzer {
     epoch: Instant,
     first_micros: Option<i64>,
     last_micros: i64,
-    /// Alerts active as of the last packet, by key.
+    /// Alerts active as of the last check, by key.
     active: BTreeMap<String, Alert>,
+    /// Engine revision at the last check.
+    seen_revision: u64,
+    /// Stream time (microseconds) at which to look for expired alerts again.
+    next_alert_check: i64,
+    level: ThreatLevel,
 }
+
+/// How often, in stream time, to look for alerts that have expired.
+const ALERT_RECHECK_MICROS: i64 = 1_000_000;
 
 /// What one packet contributed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +145,9 @@ impl ReplayAnalyzer {
             first_micros: None,
             last_micros: 0,
             active: BTreeMap::new(),
+            seen_revision: 0,
+            next_alert_check: 0,
+            level: ThreatLevel::Low,
         }
     }
 
@@ -165,25 +176,34 @@ impl ReplayAnalyzer {
             self.summary.hostnames.insert(insight.name.clone());
         }
 
-        // Diff the active alerts against the previous packet's to find what
-        // was just raised and what has lapsed.
-        let mut raised = Vec::new();
-        let mut still_active = BTreeMap::new();
-        for alert in self.engine.active_alerts(now) {
-            let key = alert_key(alert.kind, alert.source, alert.target);
-            self.summary.alerts.insert(key.clone());
-            if !self.active.contains_key(&key) {
-                raised.push(alert.clone());
+        // Re-read the alert list only when something can have changed: a new
+        // alert was raised, or enough stream time has passed for one to
+        // expire. Doing it on every packet dominated the cost under a flood.
+        let (mut raised, mut cleared) = (Vec::new(), Vec::new());
+        let revision = self.engine.revision();
+        let due = self.last_micros >= self.next_alert_check;
+        if revision != self.seen_revision || (due && (!self.active.is_empty() || self.engine.alert_count() > 0)) {
+            self.seen_revision = revision;
+            self.next_alert_check = self.last_micros + ALERT_RECHECK_MICROS;
+            let mut still_active = BTreeMap::new();
+            for alert in self.engine.active_alerts(now) {
+                let key = alert_key(alert.kind, alert.source, alert.target);
+                if !self.active.contains_key(&key) {
+                    self.summary.alerts.insert(key.clone());
+                    raised.push(alert.clone());
+                }
+                still_active.insert(key, alert.clone());
             }
-            still_active.insert(key, alert.clone());
+            for (key, alert) in std::mem::take(&mut self.active) {
+                if !still_active.contains_key(&key) {
+                    cleared.push(alert);
+                }
+            }
+            self.active = still_active;
+            self.level = self.engine.threat_level(now);
         }
-        let cleared: Vec<Alert> = std::mem::replace(&mut self.active, still_active.clone())
-            .into_iter()
-            .filter(|(key, _)| !still_active.contains_key(key))
-            .map(|(_, alert)| alert)
-            .collect();
 
-        let level = self.engine.threat_level(now);
+        let level = self.level;
         if self.summary.peak_level.is_none_or(|peak| level > peak) {
             self.summary.peak_level = Some(level);
         }
