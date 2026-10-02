@@ -124,7 +124,7 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       formatting for the unused rain tracker is gone. 187 -> 197 tests. Driven in a pty: help,
       pause, filter, quit, shrink-below-minimum and grow all behaved. Not done: threat colouring
       inside the rain itself (the border already turns red).
-- [x] **10. Machine-readable output** (`HASH`). `--json` streams NDJSON (`packet`, `alert`
+- [x] **10. Machine-readable output** (`60ce0c9`). `--json` streams NDJSON (`packet`, `alert`
       raised/cleared, final `summary`) and `--headless` prints the same as greppable text; both
       run without a terminal on live capture or `--read`. `--alerts-only`, `--count N`, and
       `--summary --json` for a single summary object. Ctrl-C/SIGTERM still write the summary; a
