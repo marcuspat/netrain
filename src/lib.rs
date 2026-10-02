@@ -13,6 +13,7 @@ pub mod matrix_rain;
 pub mod simple_matrix;
 pub mod state;
 pub mod synth;
+pub mod sysinfo;
 pub mod pcapfile;
 pub mod replay;
 pub mod threat_detection;

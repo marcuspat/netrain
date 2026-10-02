@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyEventKind},
 };
 use netrain::{
     capture::{self, CaptureSink, DeviceInfo, ReplayPacer},
@@ -10,15 +10,15 @@ use netrain::{
     pipeline::PacketEvent,
     replay::ReplayAnalyzer,
     simple_matrix::SimpleMatrixRain,
-    state::AppState,
+    state::{AppState, Command},
     Protocol, ThreatLevel,
 };
 use pcap::{Activated, Active, Capture, Device, Offline};
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use std::{
     collections::VecDeque,
@@ -79,19 +79,64 @@ impl PerformanceMonitor {
     }
     
     fn update_memory_usage(&self) {
-        // Simple memory estimation based on active data structures
-        // In production, you'd use system memory APIs
-        let estimated_kb = 1024; // Placeholder
-        self.memory_usage.store(estimated_kb, Ordering::Relaxed);
+        // Real resident set size; 0 means the platform does not expose it.
+        let kb = netrain::sysinfo::rss_bytes().map_or(0, |bytes| (bytes / 1024) as usize);
+        self.memory_usage.store(kb, Ordering::Relaxed);
     }
     
     fn get_fps(&self) -> usize {
         self.fps_counter.load(Ordering::Relaxed)
     }
     
-    fn get_memory_mb(&self) -> f32 {
-        self.memory_usage.load(Ordering::Relaxed) as f32 / 1024.0
+    /// Resident memory in MB, or `None` where it cannot be measured.
+    fn get_memory_mb(&self) -> Option<f32> {
+        match self.memory_usage.load(Ordering::Relaxed) {
+            0 => None,
+            kb => Some(kb as f32 / 1024.0),
+        }
     }
+}
+
+/// Smallest terminal the layout is designed for.
+const MIN_COLS: u16 = 80;
+const MIN_ROWS: u16 = 24;
+
+/// Target time per frame (~60 FPS). Waiting for input for this long is what
+/// paces the loop; without it the UI spun as fast as it could redraw.
+const FRAME: Duration = Duration::from_millis(16);
+
+/// Map a key press to what the user wants.
+fn command_for(key: KeyCode) -> Option<Command> {
+    match key {
+        KeyCode::Char('q') | KeyCode::Char('Q') => Some(Command::Quit),
+        KeyCode::Char(' ') | KeyCode::Char('p') | KeyCode::Char('P') => Some(Command::TogglePause),
+        KeyCode::Char('?') | KeyCode::Char('h') | KeyCode::Char('H') | KeyCode::F(1) => Some(Command::ToggleHelp),
+        KeyCode::Char('f') | KeyCode::Char('F') => Some(Command::CycleFilter),
+        KeyCode::Char('a') | KeyCode::Char('A') => Some(Command::ClearFilter),
+        KeyCode::Esc => Some(Command::Dismiss),
+        _ => None,
+    }
+}
+
+const HELP_TEXT: [(&str, &str); 6] = [
+    ("q", "quit"),
+    ("space / p", "pause the packet log and hex dump (analysis keeps running)"),
+    ("f", "filter the log: cycle through the protocols seen"),
+    ("a", "show all protocols again"),
+    ("? / h", "show or hide this help"),
+    ("esc", "close help, or clear the filter"),
+];
+
+/// A rectangle of at most `width` x `height`, centred in `area`.
+fn centered(area: Rect, width: u16, height: u16) -> Rect {
+    let w = width.min(area.width);
+    let h = height.min(area.height);
+    Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
+}
+
+/// Size of the rain area for a terminal of the given size.
+fn rain_size(cols: u16, rows: u16) -> (u16, u16) {
+    (cols * 70 / 100, rows * 40 / 100)
 }
 
 /// Most records applied per frame; the rest wait for the next one so a
@@ -424,8 +469,7 @@ fn run(cli: &Cli) -> Result<()> {
     // Initialize components
     let terminal_size = terminal.size()?;
     // Initialize simple matrix rain
-    let matrix_width = terminal_size.width * 70 / 100;
-    let matrix_height = terminal_size.height * 40 / 100;
+    let (mut matrix_width, matrix_height) = rain_size(terminal_size.width, terminal_size.height);
     let mut matrix_rain = SimpleMatrixRain::new(matrix_width, matrix_height);
 
     // Enable demo mode if requested
@@ -459,26 +503,39 @@ fn run(cli: &Cli) -> Result<()> {
     let mut last_update = Instant::now();
     let mut last_traffic_update = Instant::now();
     let mut last_activity_tick = Instant::now();
-    let mut _last_frame_time = Instant::now();
-    let _frame_time = Duration::from_millis(16); // Target 60 FPS
+    let mut last_frame_start = Instant::now();
+    perf_monitor.update_memory_usage();
     
     loop {
-        let frame_start = Instant::now();
-        // Handle input
-        if event::poll(Duration::from_millis(5))? {
+        // Handle input. Waiting here for the rest of the frame budget is
+        // what paces the loop.
+        if event::poll(FRAME.saturating_sub(last_frame_start.elapsed()))? {
             // Read exactly once per poll: a second read here used to block
             // on (and swallow) the next event.
-            if let Event::Key(key) = event::read()? {
-                if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q')) {
-                    break;
+            match event::read()? {
+                // Windows reports key releases too; act on presses only.
+                Event::Key(key) if key.kind != KeyEventKind::Release => {
+                    if let Some(command) = command_for(key.code) {
+                        if app.command(command) {
+                            break;
+                        }
+                    }
                 }
+                Event::Resize(cols, rows) => {
+                    let (w, h) = rain_size(cols, rows);
+                    matrix_width = w;
+                    matrix_rain.resize(w, h);
+                }
+                _ => {}
             }
         }
+
+        let frame_start = Instant::now();
 
         // Fold everything the capture thread queued since the last frame.
         let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
         app.drain(&capture_rx, DRAIN_BUDGET, &timestamp, Instant::now(), |event| {
-            matrix_rain.track_ip_packet(&event.src.to_string(), &event.dst.to_string(), event.protocol.label());
+            let _ = event;
             let x = rand::random::<u16>() % matrix_width.max(1);
             matrix_rain.add_column(x);
         });
@@ -497,6 +554,7 @@ fn run(cli: &Cli) -> Result<()> {
         // Update traffic rate every second
         if now.duration_since(last_traffic_update) >= Duration::from_secs(1) {
             app.tick_second();
+            perf_monitor.update_memory_usage();
             last_traffic_update = now;
         }
         
@@ -508,6 +566,20 @@ fn run(cli: &Cli) -> Result<()> {
 
         // Render with simplified layout
         terminal.draw(|f| {
+            // Below the minimum size the panels would overlap into nonsense.
+            let full = f.size();
+            if full.width < MIN_COLS || full.height < MIN_ROWS {
+                let message = format!(
+                    "Terminal too small: {}x{}\nnetrain needs at least {}x{}\n(q to quit)",
+                    full.width, full.height, MIN_COLS, MIN_ROWS
+                );
+                f.render_widget(
+                    Paragraph::new(message).alignment(Alignment::Center).style(Style::default().fg(Color::Yellow)),
+                    full,
+                );
+                return;
+            }
+
             // Simple two-column layout without title bar
             let main_chunks = Layout::default()
                 .direction(Direction::Horizontal)
@@ -554,7 +626,15 @@ fn run(cli: &Cli) -> Result<()> {
                     }).add_modifier(if threat_level != ThreatLevel::Low { Modifier::BOLD } else { Modifier::empty() })
                 ),
                 Span::raw(" | "),
-                Span::styled("Q:Quit", Style::default().fg(Color::DarkGray)),
+                if app.paused {
+                    Span::styled(
+                        format!("PAUSED (+{}) ", app.skipped_while_paused),
+                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::raw("")
+                },
+                Span::styled("?:Help Q:Quit", Style::default().fg(Color::DarkGray)),
             ];
             
             let stats_bar = Paragraph::new(Line::from(stats_text))
@@ -620,34 +700,16 @@ fn run(cli: &Cli) -> Result<()> {
                 }
                 
                 // Add packet log entries - fill the expanded space
-                let packet_entries: Vec<ListItem> = log.iter()
+                let packet_entries: Vec<ListItem> = app
+                    .visible_log()
                     .take(if !talkers.is_empty() { 31 } else { 40 })
                     .enumerate()
                     .map(|(i, entry)| {
-                    let color = if entry.contains("HTTP ") {
-                        Color::Blue
-                    } else if entry.contains("HTTPS") {
-                        Color::Cyan
-                    } else if entry.contains("DNS") {
-                        Color::Yellow
-                    } else if entry.contains("SSH") {
-                        Color::Magenta
-                    } else if entry.contains("TCP") {
-                        Color::Green
-                    } else if entry.contains("UDP") {
-                        Color::LightGreen
-                    } else {
-                        Color::Gray
-                    };
-                    
-                    let style = if i == 0 {
-                        Style::default().fg(color).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(color)
-                    };
-                    ListItem::new(entry.as_str()).style(style)
-                })
-                .collect();
+                        let style = Style::default().fg(protocol_color(entry.protocol));
+                        ListItem::new(entry.line.as_str())
+                            .style(if i == 0 { style.add_modifier(Modifier::BOLD) } else { style })
+                    })
+                    .collect();
                 
                 items.extend(packet_entries);
                 items
@@ -657,7 +719,10 @@ fn run(cli: &Cli) -> Result<()> {
                 .block(Block::default()
                     .borders(Borders::TOP | Borders::BOTTOM)
                     .border_style(Style::default().fg(Color::DarkGray))
-                    .title(" [ PACKET LOG ] ")
+                    .title(match app.log_filter {
+                        Some(p) => format!(" [ PACKET LOG: {} only - f next, a all ] ", p.label()),
+                        None => " [ PACKET LOG ] ".to_string(),
+                    })
                     .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             f.render_widget(log_list, matrix_chunks[2]);
             
@@ -746,7 +811,10 @@ fn run(cli: &Cli) -> Result<()> {
                     }),
                 ListItem::new(format!("PKT/s: {}", packet_rate))
                     .style(Style::default().fg(Color::Cyan)),
-                ListItem::new(format!("MEM: {:.1}MB", memory_mb))
+                ListItem::new(match memory_mb {
+                    Some(mb) => format!("MEM: {:.1}MB", mb),
+                    None => "MEM: n/a".to_string(),
+                })
                     .style(Style::default().fg(Color::Blue)),
                 // Packets that were on the wire but never displayed: kernel
                 // buffer overruns, interface drops, and our own full queue.
@@ -881,7 +949,7 @@ fn run(cli: &Cli) -> Result<()> {
             if !raw.is_empty() && !log.is_empty() {
                 // Show hex dump of latest packet
                 packet_dump_text.push(Line::from(Span::styled("Latest Packet:", Style::default().fg(Color::Green))));
-                packet_dump_text.push(Line::from(Span::styled(log[0].clone(), Style::default().fg(Color::Cyan))));
+                packet_dump_text.push(Line::from(Span::styled(log[0].line.clone(), Style::default().fg(Color::Cyan))));
                 packet_dump_text.push(Line::from("".to_string())); // One empty line
                 
                 // Generate hex dump from packet data
@@ -922,20 +990,85 @@ fn run(cli: &Cli) -> Result<()> {
                     .title(" [ PACKET DUMP ] ")
                     .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
             f.render_widget(packet_dump, right_chunks[3]);
+
+            if app.show_help {
+                let lines: Vec<Line> = HELP_TEXT
+                    .iter()
+                    .map(|(key, what)| {
+                        Line::from(vec![
+                            Span::styled(format!(" {:<10}", key), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                            Span::raw(*what),
+                        ])
+                    })
+                    .collect();
+                let area = centered(full, 76, HELP_TEXT.len() as u16 + 2);
+                f.render_widget(Clear, area);
+                f.render_widget(
+                    Paragraph::new(lines).block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(BorderType::Double)
+                            .border_style(Style::default().fg(Color::Green))
+                            .title(" KEYS "),
+                    ),
+                    area,
+                );
+            }
         })?;
         
-        // Record frame time for performance monitoring
-        let frame_duration = frame_start.elapsed();
-        perf_monitor.record_frame(frame_duration);
-        _last_frame_time = frame_start;
-        
-        // Update memory usage periodically
-        if frame_start.duration_since(last_traffic_update) >= Duration::from_secs(5) {
-            perf_monitor.update_memory_usage();
-        }
+        // FPS is measured between frame starts, i.e. what is actually drawn
+        // per second, not how fast a single frame could be rendered.
+        perf_monitor.record_frame(frame_start.duration_since(last_frame_start));
+        last_frame_start = frame_start;
     }
 
     // The guard restores the terminal when it goes out of scope.
     drop(guard);
     Ok(())
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use super::*;
+
+    #[test]
+    fn keys_map_to_commands() {
+        assert_eq!(command_for(KeyCode::Char('q')), Some(Command::Quit));
+        assert_eq!(command_for(KeyCode::Char('Q')), Some(Command::Quit));
+        assert_eq!(command_for(KeyCode::Char(' ')), Some(Command::TogglePause));
+        assert_eq!(command_for(KeyCode::Char('p')), Some(Command::TogglePause));
+        assert_eq!(command_for(KeyCode::Char('?')), Some(Command::ToggleHelp));
+        assert_eq!(command_for(KeyCode::F(1)), Some(Command::ToggleHelp));
+        assert_eq!(command_for(KeyCode::Char('f')), Some(Command::CycleFilter));
+        assert_eq!(command_for(KeyCode::Char('a')), Some(Command::ClearFilter));
+        assert_eq!(command_for(KeyCode::Esc), Some(Command::Dismiss));
+        assert_eq!(command_for(KeyCode::Char('x')), None);
+        assert_eq!(command_for(KeyCode::Enter), None);
+    }
+
+    #[test]
+    fn every_documented_key_is_bound() {
+        // The help overlay must not advertise a key that does nothing.
+        for key in ['q', ' ', 'p', 'f', 'a', '?', 'h'] {
+            assert!(command_for(KeyCode::Char(key)).is_some(), "{key:?}");
+        }
+        assert_eq!(HELP_TEXT.len(), 6);
+    }
+
+    #[test]
+    fn centered_never_exceeds_its_area() {
+        let area = Rect { x: 0, y: 0, width: 100, height: 40 };
+        assert_eq!(centered(area, 76, 8), Rect { x: 12, y: 16, width: 76, height: 8 });
+        // A popup larger than the screen is clamped, not overflowed.
+        let tiny = Rect { x: 0, y: 0, width: 20, height: 4 };
+        assert_eq!(centered(tiny, 76, 8), tiny);
+        assert_eq!(centered(Rect::default(), 76, 8), Rect::default());
+    }
+
+    #[test]
+    fn rain_area_scales_with_the_terminal() {
+        assert_eq!(rain_size(200, 50), (140, 20));
+        assert_eq!(rain_size(80, 24), (56, 9));
+        assert_eq!(rain_size(0, 0), (0, 0));
+    }
 }

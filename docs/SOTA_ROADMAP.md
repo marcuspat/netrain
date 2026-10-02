@@ -112,9 +112,18 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       `ip_proto`); the default interface prefers a live loopback over a dead Ethernet port; and a
       regression test pins that an answering server is not flagged while the target table churns
       (the reported false positive did not reproduce). 181 -> 187 tests.
-- [ ] **9. UI.** Resize handling (and the swallowed-event bug), pause (space), help overlay (`?`),
-      protocol filter keys, real process memory (RSS) instead of the placeholder, threat
-      colouring in the rain.
+- [x] **9. UI** (`HASH`). Keys: space/p pause (the log and hex dump hold still; statistics, flows
+      and threat detection keep running and the bar shows how many packets were skipped), f cycle
+      a protocol filter over the log, a show all, ?/h help overlay, esc dismiss, q quit. The rain
+      follows terminal resizes; below 80x24 a clear "too small" message replaces the layout.
+      MEM shows the real resident set size from `/proc/self/status` (`n/a` where unavailable,
+      e.g. macOS) instead of a constant 1.0MB. The loop is now paced by the input wait at ~60 FPS
+      (it used to spin as fast as it could redraw), and FPS is measured between frames rather than
+      from render time. Log lines carry their protocol, so colours no longer come from substring
+      matching, and the log keeps 500 lines so a filter has material. Per-packet address
+      formatting for the unused rain tracker is gone. 187 -> 197 tests. Driven in a pty: help,
+      pause, filter, quit, shrink-below-minimum and grow all behaved. Not done: threat colouring
+      inside the rain itself (the border already turns red).
 - [ ] **10. Machine-readable output.** `--json` NDJSON stream of packets/alerts, `--headless` for
       servers and pipes, summary on exit; schema documented and tested.
 - [ ] **11. Least privilege.** Open capture then drop root; document `setcap cap_net_raw,

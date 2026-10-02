@@ -105,7 +105,8 @@ impl SimpleMatrixRain {
         }
         
         // Add new columns occasionally
-        if rng.gen_bool(0.1) && self.columns.len() < (self.width as usize * 2 / 3) {
+        // A zero-width area (tiny terminal) has nowhere to put a column.
+        if self.width > 0 && rng.gen_bool(0.1) && self.columns.len() < (self.width as usize * 2 / 3) {
             let x = rng.gen_range(0..self.width);
             if !self.columns.contains_key(&x) {
                 self.columns.insert(x, Column::new(self.height));
@@ -113,6 +114,23 @@ impl SimpleMatrixRain {
         }
     }
     
+    /// Adapt to a new drawing area, dropping columns that no longer fit.
+    pub fn resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+        self.columns.retain(|x, _| *x < width);
+    }
+
+    /// Current (width, height) of the drawing area.
+    pub fn size(&self) -> (u16, u16) {
+        (self.width, self.height)
+    }
+
+    /// Number of falling columns.
+    pub fn column_count(&self) -> usize {
+        self.columns.len()
+    }
+
     pub fn add_column(&mut self, x: u16) {
         if x < self.width && !self.columns.contains_key(&x) {
             self.columns.insert(x, Column::new(self.height));
@@ -197,5 +215,36 @@ impl Widget for &SimpleMatrixRain {
                 }
             }
         }
+    }
+}
+#[cfg(test)]
+mod resize_tests {
+    use super::*;
+
+    #[test]
+    fn resize_drops_columns_outside_the_new_width_and_survives_zero() {
+        let mut rain = SimpleMatrixRain::new(100, 30);
+        for x in 0..100 {
+            rain.add_column(x);
+        }
+        assert_eq!(rain.column_count(), 100);
+        rain.resize(40, 10);
+        assert_eq!(rain.size(), (40, 10));
+        assert_eq!(rain.column_count(), 40);
+        rain.add_column(39);
+        rain.add_column(40); // out of range now: ignored
+        assert_eq!(rain.column_count(), 40);
+
+        // A terminal squeezed to nothing must not panic on update.
+        rain.resize(0, 0);
+        assert_eq!(rain.column_count(), 0);
+        for _ in 0..200 {
+            rain.update();
+        }
+        rain.resize(80, 24);
+        for _ in 0..200 {
+            rain.update();
+        }
+        assert!(rain.column_count() > 0, "rain resumes after growing back");
     }
 }
