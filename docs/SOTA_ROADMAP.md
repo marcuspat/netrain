@@ -62,9 +62,18 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       reported instead of silently ending the thread. Fixed the double `event::read()` that
       swallowed an event. 117 -> 128 tests. Smoke-tested in a pty: `--demo` renders, and live
       capture as root in the dev container showed real HTTPS packets with real addresses.
-- [ ] **4. CLI and safe terminal handling.** `clap`: `--interface`, `--list-interfaces`,
-      `--filter <bpf>`, `--read <file.pcap>`, `--demo`. Panic hook and RAII guard that always
-      restore the terminal. Clear error (not a blank UI) when capture cannot open.
+- [x] **4. CLI and safe terminal handling** (`HASH`). `clap` CLI: `-i/--interface`,
+      `-l/--list-interfaces`, `-f/--filter <bpf>`, `-r/--read <file.pcap>` with `--speed`,
+      `--demo`, `--no-splash`; unknown or conflicting flags now exit 2 (a typo such as `--dmeo`
+      used to start a live capture). The source is opened and the filter compiled *before* the
+      TUI starts, so a missing file, bad filter, unknown interface or missing privileges is a
+      one-line `netrain: ...` error with exit code 1. `term::TerminalGuard` restores the terminal
+      on every exit path and from a panic hook. Mouse capture is no longer enabled (it was unused
+      and blocked text selection). `--read` replays through the live pipeline, paced by the
+      recorded timestamps, without dropping. 128 -> 144 tests, including black-box tests of the
+      binary. Smoke-tested in a pty: replaying a synthetic 40-port scan raised the port-scan alert.
+      Finding: `tests/fixtures/*.pcap` are not valid pcap files (ASCII `PCAP` magic); item 5 must
+      generate real ones.
 - [ ] **5. Offline replay and golden tests.** `--read` replays a pcap through the same pipeline;
       end-to-end tests over `tests/fixtures/*.pcap` asserting protocol counts and alerts.
 - [ ] **6. Flow table.** 5-tuple flows with packets/bytes/first-last seen/TCP state, bounded with

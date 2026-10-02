@@ -1,34 +1,36 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use clap::Parser;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    event::{self, Event, KeyCode},
 };
 use netrain::{
-    capture::{self, CaptureSink, DeviceInfo},
+    capture::{self, CaptureSink, DeviceInfo, ReplayPacer},
     decode::{LinkType, Transport},
     pipeline::PacketEvent,
     simple_matrix::SimpleMatrixRain,
     state::AppState,
     Protocol, ThreatLevel,
 };
-use pcap::{Capture, Device};
+use pcap::{Activated, Active, Capture, Device, Offline};
 use ratatui::{
-    backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Wrap},
-    Terminal,
 };
 use std::{
     collections::VecDeque,
-    env,
-    io,
+    process::ExitCode,
     sync::{Mutex, atomic::{AtomicUsize, Ordering}},
     thread,
     time::{Duration, Instant},
 };
+
+mod cli;
+mod term;
+
+use cli::{Cli, Mode};
+use term::TerminalGuard;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -131,16 +133,15 @@ fn run_demo(sink: CaptureSink) {
     }
 }
 
-/// Live capture: open the best interface and feed the sink until the UI exits.
-fn run_capture(sink: CaptureSink) {
-    let devices = match Device::list() {
-        Ok(devices) => devices,
-        Err(e) => {
-            sink.error(format!("Failed to list network devices: {}\nTry running with 'sudo netrain'", e));
-            return;
-        }
-    };
-    let infos: Vec<DeviceInfo> = devices
+/// A packet source that has been opened and validated, ready to be read.
+enum Source {
+    Demo,
+    Live { cap: Capture<Active>, link: LinkType, name: String },
+    Replay { cap: Capture<Offline>, link: LinkType, name: String, speed: f64 },
+}
+
+fn device_infos(devices: &[Device]) -> Vec<DeviceInfo> {
+    devices
         .iter()
         .map(|d| DeviceInfo {
             name: d.name.clone(),
@@ -149,39 +150,85 @@ fn run_capture(sink: CaptureSink) {
             loopback: d.flags.is_loopback(),
             has_address: !d.addresses.is_empty(),
         })
-        .collect();
-    let device = match capture::choose_device(&infos, None) {
-        Ok(index) => devices[index].clone(),
-        Err(message) => {
-            sink.error(message);
-            return;
-        }
-    };
-    let name = device.name.clone();
+        .collect()
+}
 
-    let opened = Capture::from_device(device)
-        .and_then(|builder| builder.promisc(true).snaplen(5000).timeout(1000).open());
-    let mut cap = match opened {
-        Ok(cap) => cap,
-        Err(e) => {
-            sink.error(format!(
-                "Cannot capture on {}: run with 'sudo netrain' or use '--demo' mode\nError: {}",
-                name, e
-            ));
-            return;
-        }
-    };
+fn list_devices() -> Result<Vec<Device>> {
+    Device::list().map_err(|e| anyhow!("Failed to list network devices: {e}\nTry running with sudo."))
+}
 
-    // Decode with the capture's real framing instead of guessing.
+/// `--list-interfaces`: print what can be captured on and which one is the default.
+fn print_interfaces() -> Result<()> {
+    let devices = list_devices()?;
+    let infos = device_infos(&devices);
+    let default = capture::choose_device(&infos, None).ok();
+    println!("{:<2}{:<18}{:<22}ADDRESSES", "", "INTERFACE", "STATE");
+    for (i, (device, info)) in devices.iter().zip(&infos).enumerate() {
+        let mut state = Vec::new();
+        if info.up {
+            state.push("up");
+        }
+        if info.running {
+            state.push("running");
+        }
+        if info.loopback {
+            state.push("loopback");
+        }
+        let addresses: Vec<String> = device.addresses.iter().map(|a| a.addr.to_string()).collect();
+        println!(
+            "{:<2}{:<18}{:<22}{}",
+            if default == Some(i) { "*" } else { "" },
+            device.name,
+            if state.is_empty() { "down".to_string() } else { state.join(",") },
+            addresses.join(" ")
+        );
+    }
+    println!("\n* = used when --interface is not given");
+    Ok(())
+}
+
+fn link_type<T: Activated + ?Sized>(cap: &Capture<T>, name: &str) -> Result<LinkType> {
     let datalink = cap.get_datalink();
-    let Some(link) = LinkType::from_dlt(datalink.0) else {
-        sink.error(format!("Unsupported link type {} on {}", datalink.0, name));
-        return;
-    };
+    LinkType::from_dlt(datalink.0)
+        .ok_or_else(|| anyhow!("Unsupported link type {} ({}) on {}", datalink.0, datalink.get_name().unwrap_or_default(), name))
+}
 
-    // IPv4 and IPv6; everything else is dropped in the kernel.
-    let _ = cap.filter("ip or ip6", true);
+/// Open and validate the packet source *before* the terminal is switched to
+/// TUI mode, so that any problem is a plain error message and a non-zero
+/// exit code rather than an empty screen.
+fn open_source(cli: &Cli) -> Result<Source> {
+    match cli.mode() {
+        Mode::Demo => Ok(Source::Demo),
+        Mode::Replay(path) => {
+            let name = path.display().to_string();
+            let mut cap = Capture::from_file(&path).map_err(|e| anyhow!("Cannot read {name}: {e}"))?;
+            let link = link_type(&cap, &name)?;
+            cap.filter(&cli.filter, true).map_err(|e| anyhow!("Invalid filter '{}': {e}", cli.filter))?;
+            Ok(Source::Replay { cap, link, name, speed: cli.speed })
+        }
+        Mode::Live { interface } => {
+            let devices = list_devices()?;
+            let index = capture::choose_device(&device_infos(&devices), interface.as_deref())
+                .map_err(|e| anyhow!(e))?;
+            let device = devices[index].clone();
+            let name = device.name.clone();
+            let mut cap = Capture::from_device(device)
+                .and_then(|builder| builder.promisc(true).snaplen(5000).timeout(1000).open())
+                .map_err(|e| {
+                    anyhow!(
+                        "Cannot capture on {name}: {e}\n\
+                         Live capture needs privileges: run 'sudo netrain', or try 'netrain --demo'."
+                    )
+                })?;
+            let link = link_type(&cap, &name)?;
+            cap.filter(&cli.filter, true).map_err(|e| anyhow!("Invalid filter '{}': {e}", cli.filter))?;
+            Ok(Source::Live { cap, link, name })
+        }
+    }
+}
 
+/// Live capture: feed the sink until the UI exits.
+fn run_capture(mut cap: Capture<Active>, link: LinkType, name: String, sink: CaptureSink) {
     let mut last_stats = Instant::now();
     loop {
         match cap.next_packet() {
@@ -205,38 +252,71 @@ fn run_capture(sink: CaptureSink) {
     }
 }
 
-fn main() -> Result<()> {
-    // Parse command line arguments
-    let args: Vec<String> = env::args().collect();
-    
-    // Check for version flag
-    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
-        println!("NetRain v{}", VERSION);
-        return Ok(());
+/// Replay a pcap file through the same pipeline as live capture, paced by
+/// the recorded timestamps so rates and alert windows behave as they did.
+fn run_replay(mut cap: Capture<Offline>, link: LinkType, name: String, speed: f64, sink: CaptureSink) {
+    let mut pacer = ReplayPacer::new(speed);
+    let mut packets = 0u64;
+    loop {
+        match cap.next_packet() {
+            Ok(packet) => {
+                let ts = packet.header.ts;
+                // timeval field widths differ between platforms.
+                #[allow(clippy::unnecessary_cast)]
+                let micros = (ts.tv_sec as i64).saturating_mul(1_000_000).saturating_add(ts.tv_usec as i64);
+                let wait = pacer.delay_before(micros);
+                if !wait.is_zero() {
+                    thread::sleep(wait);
+                }
+                packets += 1;
+                // Blocking: a replay must not lose packets to a full queue.
+                if !sink.submit_blocking(link, packet.data, packet.header.len as usize) {
+                    return;
+                }
+            }
+            Err(pcap::Error::NoMorePackets) => {
+                sink.finished(format!("Replay of {name} complete: {packets} packets"));
+                return;
+            }
+            Err(e) => {
+                sink.error(format!("Reading {name} failed after {packets} packets: {e}"));
+                return;
+            }
+        }
     }
-    
-    // Check for help flag
-    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
-        println!("NetRain v{} - Matrix-style network packet monitor", VERSION);
-        println!("\nUsage: netrain [OPTIONS]");
-        println!("\nOptions:");
-        println!("  --demo       Run in demo mode (no root required)");
-        println!("  --version    Show version information");
-        println!("  --help       Show this help message");
-        println!("\nControls:");
-        println!("  Q            Quit the application");
-        return Ok(());
-    }
-    
-    let demo_mode = args.contains(&"--demo".to_string());
-    
-    // Setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+}
 
+fn main() -> ExitCode {
+    // clap handles --help/--version and rejects unknown or conflicting flags.
+    let cli = Cli::parse();
+    match run(&cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            // The terminal has been restored by now (TerminalGuard), so this
+            // is readable.
+            eprintln!("netrain: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(cli: &Cli) -> Result<()> {
+    if cli.list_interfaces {
+        return print_interfaces();
+    }
+    let source = open_source(cli)?;
+    let demo_mode = matches!(source, Source::Demo);
+    let source_label = match &source {
+        Source::Demo => "demo".to_string(),
+        Source::Live { name, .. } => name.clone(),
+        Source::Replay { name, .. } => format!("replay {name}"),
+    };
+
+    // Setup terminal; restored on every exit path, including panics.
+    let mut guard = TerminalGuard::enter()?;
+    let terminal = &mut guard.terminal;
+
+    if !cli.no_splash {
     // Show ASCII logo as splash screen
     terminal.draw(|f| {
         let area = f.size();
@@ -287,6 +367,7 @@ fn main() -> Result<()> {
 
     // Show splash screen briefly
     thread::sleep(Duration::from_millis(1500));
+    }
     
     // IMPORTANT: Clear the terminal completely before starting main UI
     terminal.clear()?;
@@ -294,8 +375,8 @@ fn main() -> Result<()> {
     // Initialize components
     let terminal_size = terminal.size()?;
     // Initialize simple matrix rain
-    let matrix_width = (terminal_size.width * 70 / 100) as u16;
-    let matrix_height = (terminal_size.height * 40 / 100) as u16;
+    let matrix_width = terminal_size.width * 70 / 100;
+    let matrix_height = terminal_size.height * 40 / 100;
     let mut matrix_rain = SimpleMatrixRain::new(matrix_width, matrix_height);
 
     // Enable demo mode if requested
@@ -313,10 +394,16 @@ fn main() -> Result<()> {
     let (sink, capture_rx, capture_counters) = capture::channel(capture::DEFAULT_QUEUE);
     let perf_monitor = PerformanceMonitor::new();
 
-    if demo_mode {
-        thread::spawn(move || run_demo(sink));
-    } else {
-        thread::spawn(move || run_capture(sink));
+    match source {
+        Source::Demo => {
+            thread::spawn(move || run_demo(sink));
+        }
+        Source::Live { cap, link, name } => {
+            thread::spawn(move || run_capture(cap, link, name, sink));
+        }
+        Source::Replay { cap, link, name, speed } => {
+            thread::spawn(move || run_replay(cap, link, name, speed, sink));
+        }
     }
 
     // Main render loop
@@ -402,6 +489,8 @@ fn main() -> Result<()> {
             let stats_text = vec![
                 Span::styled(format!(" NETRAIN v{} ", VERSION), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::raw("|"),
+                Span::styled(format!(" {} ", source_label), Style::default().fg(Color::Cyan)),
+                Span::raw("|"),
                 Span::styled(format!(" FPS: {} ", fps), Style::default().fg(if fps >= 55 { Color::Green } else { Color::Yellow })),
                 Span::raw("|"),
                 Span::styled(format!(" {} pkt/s ", traffic_rate), Style::default().fg(Color::Cyan)),
@@ -449,11 +538,17 @@ fn main() -> Result<()> {
                     .collect()
             } else if log.is_empty() && !demo_mode {
                 // No packets and no error - show waiting message
-                vec![ListItem::new("Waiting for packets...").style(Style::default().fg(Color::DarkGray))]
+                let waiting = app.finished.clone().unwrap_or_else(|| "Waiting for packets...".to_string());
+                vec![ListItem::new(waiting).style(Style::default().fg(Color::DarkGray))]
             } else {
                 // Get active IPs and add them at the top
                 let active_ips = rain.get_active_ips();
                 let mut items = Vec::new();
+                if let Some(done) = &app.finished {
+                    items.push(ListItem::new(done.clone()).style(
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    ));
+                }
                 
                 // Add top 3 most active IPs if any exist
                 if !active_ips.is_empty() {
@@ -797,14 +892,7 @@ fn main() -> Result<()> {
         }
     }
 
-    // Cleanup
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
+    // The guard restores the terminal when it goes out of scope.
+    drop(guard);
     Ok(())
 }

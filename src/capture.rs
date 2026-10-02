@@ -47,6 +47,8 @@ pub enum CaptureMsg {
     Packet(PacketRecord),
     /// Capture could not start or stopped; shown to the user.
     Error(String),
+    /// The source ended normally (end of a replayed file).
+    Finished(String),
 }
 
 /// Lock-free counters shared between capture and UI.
@@ -138,6 +140,24 @@ impl CaptureSink {
         }
     }
 
+    /// Decode and queue one packet, waiting for room. For replay, where
+    /// losing packets to a slow UI would make the result wrong.
+    pub fn submit_blocking(&self, link: LinkType, data: &[u8], wire_len: usize) -> bool {
+        self.counters.received.fetch_add(1, Ordering::Relaxed);
+        match observe(link, data, wire_len) {
+            Ok((event, _)) => self.tx.send(CaptureMsg::Packet(PacketRecord::new(event, data))).is_ok(),
+            Err(_) => {
+                self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+        }
+    }
+
+    /// Announce a normal end of input.
+    pub fn finished(&self, message: impl Into<String>) {
+        let _ = self.tx.send(CaptureMsg::Finished(message.into()));
+    }
+
     /// Report a fatal capture problem. Blocks until queued so that it cannot
     /// be lost behind a full queue.
     pub fn error(&self, message: impl Into<String>) {
@@ -148,6 +168,39 @@ impl CaptureSink {
     pub fn set_kernel_stats(&self, dropped: u64, interface_dropped: u64) {
         self.counters.kernel_dropped.store(dropped, Ordering::Relaxed);
         self.counters.interface_dropped.store(interface_dropped, Ordering::Relaxed);
+    }
+}
+
+/// Paces a replay by the timestamps recorded in the capture file.
+#[derive(Debug, Clone)]
+pub struct ReplayPacer {
+    speed: f64,
+    last_micros: Option<i64>,
+}
+
+impl ReplayPacer {
+    /// Longest pause honoured between two packets, so a trace with an idle
+    /// hour in it does not look hung.
+    pub const MAX_GAP: std::time::Duration = std::time::Duration::from_secs(1);
+
+    /// `speed` multiplies playback rate; `0` means no pacing at all.
+    pub fn new(speed: f64) -> Self {
+        Self { speed, last_micros: None }
+    }
+
+    /// How long to wait before delivering a packet stamped `micros`
+    /// (microseconds since the epoch).
+    pub fn delay_before(&mut self, micros: i64) -> std::time::Duration {
+        let previous = self.last_micros.replace(micros);
+        let Some(previous) = previous else {
+            return std::time::Duration::ZERO;
+        };
+        if self.speed <= 0.0 || !self.speed.is_finite() {
+            return std::time::Duration::ZERO;
+        }
+        // Out-of-order timestamps (they happen) mean no wait.
+        let gap = micros.saturating_sub(previous).max(0) as f64 / self.speed;
+        std::time::Duration::from_micros(gap as u64).min(Self::MAX_GAP)
     }
 }
 
@@ -304,6 +357,37 @@ mod tests {
         // Ties keep pcap's ordering.
         let tie = [dev("eth0", true, true, false, true), dev("eth1", true, true, false, true)];
         assert_eq!(choose_device(&tie, None), Ok(0));
+    }
+
+    #[test]
+    fn replay_pacing_follows_timestamps() {
+        use std::time::Duration;
+        let mut p = ReplayPacer::new(1.0);
+        assert_eq!(p.delay_before(1_000_000), Duration::ZERO, "first packet is immediate");
+        assert_eq!(p.delay_before(1_250_000), Duration::from_millis(250));
+        assert_eq!(p.delay_before(1_250_000), Duration::ZERO);
+        assert_eq!(p.delay_before(1_000_000), Duration::ZERO, "out-of-order timestamp");
+        assert_eq!(p.delay_before(9_000_000_000), ReplayPacer::MAX_GAP, "idle gaps are capped");
+
+        let mut fast = ReplayPacer::new(4.0);
+        fast.delay_before(0);
+        assert_eq!(fast.delay_before(400_000), Duration::from_millis(100));
+
+        let mut unpaced = ReplayPacer::new(0.0);
+        unpaced.delay_before(0);
+        assert_eq!(unpaced.delay_before(5_000_000), Duration::ZERO);
+    }
+
+    #[test]
+    fn blocking_submit_and_finished_message() {
+        let (sink, rx, counters) = channel(4);
+        let f = frame(22);
+        assert!(sink.submit_blocking(LinkType::Ethernet, &f, f.len()));
+        assert!(sink.submit_blocking(LinkType::Ethernet, &[0; 3], 3));
+        sink.finished("done");
+        assert!(matches!(rx.try_recv(), Ok(CaptureMsg::Packet(_))));
+        assert!(matches!(rx.try_recv(), Ok(CaptureMsg::Finished(m)) if m == "done"));
+        assert_eq!(counters.snapshot().undecodable, 1);
     }
 
     #[test]

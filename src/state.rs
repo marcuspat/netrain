@@ -25,6 +25,8 @@ pub struct AppState {
     /// Newest first.
     pub raw_packets: VecDeque<Vec<u8>>,
     pub capture_error: Option<String>,
+    /// Set when the source ended normally (replay reached end of file).
+    pub finished: Option<String>,
     pub total_packets: u64,
     /// Packets displayed during the last full second.
     pub packet_rate: u64,
@@ -46,6 +48,7 @@ impl AppState {
             packet_log: VecDeque::with_capacity(LOG_LINES + 1),
             raw_packets: VecDeque::with_capacity(RAW_SAMPLES + 1),
             capture_error: None,
+            finished: None,
             total_packets: 0,
             packet_rate: 0,
             packets_this_second: 0,
@@ -86,6 +89,7 @@ impl AppState {
                     on_packet(&record.event);
                 }
                 Ok(CaptureMsg::Error(message)) => self.capture_error = Some(message),
+                Ok(CaptureMsg::Finished(message)) => self.finished = Some(message),
                 Err(_) => break,
             }
             applied += 1;
