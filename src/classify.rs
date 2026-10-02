@@ -53,16 +53,28 @@ pub fn classify(decoded: &Decoded<'_>) -> Protocol {
             }
         }
         Transport::Udp { src_port, dst_port } => {
-            if src_port == 53 || dst_port == 53 {
-                Protocol::DNS
-            } else if (src_port == 443 || dst_port == 443) && crate::inspect::is_quic_initial(decoded.payload) {
-                // QUIC connection setup: HTTP/3, i.e. encrypted web traffic.
-                Protocol::HTTPS
-            } else {
-                Protocol::UDP
+            if let Some(p) = udp_service(src_port).or_else(|| udp_service(dst_port)) {
+                return p;
             }
+            if (src_port == 443 || dst_port == 443) && crate::inspect::is_quic_initial(decoded.payload) {
+                return Protocol::QUIC;
+            }
+            Protocol::UDP
         }
+        Transport::Icmp { .. } | Transport::Icmpv6 { .. } => Protocol::ICMP,
         _ => Protocol::Unknown,
+    }
+}
+
+/// Well-known UDP services by port.
+fn udp_service(port: u16) -> Option<Protocol> {
+    match port {
+        53 => Some(Protocol::DNS),
+        5353 => Some(Protocol::MDNS),
+        123 => Some(Protocol::NTP),
+        67 | 68 | 546 | 547 => Some(Protocol::DHCP),
+        1900 => Some(Protocol::SSDP),
+        _ => None,
     }
 }
 
@@ -137,17 +149,37 @@ mod tests {
     fn udp_and_ipv6() {
         let pkt = ipv4(17, A, B, &udp(40000, 53, b"\0\0"));
         assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::DNS);
-        let pkt = ipv4(17, A, B, &udp(40000, 123, b""));
+        let pkt = ipv4(17, A, B, &udp(40000, 9999, b""));
         assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::UDP);
         let pkt = ethernet(0x86dd, &ipv6(6, [1; 16], [2; 16], &tcp(50000, 443, TcpFlags::SYN, b"")));
         assert_eq!(classify(&decode(LinkType::Ethernet, &pkt).unwrap()), Protocol::HTTPS);
-        // QUIC (HTTP/3) connection setup on UDP 443 counts as HTTPS; other
-        // UDP on 443 does not.
-        let pkt = ipv4(17, A, B, &udp(40000, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]));
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::HTTPS);
-        let pkt = ipv4(17, A, B, &udp(40000, 443, &[0x40, 1, 2, 3, 4, 5, 6, 7, 8]));
-        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::UDP);
+    }
+
+    #[test]
+    fn udp_services_icmp_and_quic_have_their_own_labels() {
+        let udp_class = |sp: u16, dp: u16, payload: &[u8]| {
+            let pkt = ipv4(17, A, B, &udp(sp, dp, payload));
+            classify(&decode(LinkType::RawIp, &pkt).unwrap())
+        };
+        assert_eq!(udp_class(40000, 123, &[0x1b; 48]), Protocol::NTP);
+        assert_eq!(udp_class(68, 67, b""), Protocol::DHCP);
+        assert_eq!(udp_class(546, 547, b""), Protocol::DHCP);
+        assert_eq!(udp_class(5353, 5353, b""), Protocol::MDNS);
+        assert_eq!(udp_class(50000, 1900, b"M-SEARCH * HTTP/1.1\r\n"), Protocol::SSDP);
+        // The reply comes *from* the service port.
+        assert_eq!(udp_class(123, 40000, b""), Protocol::NTP);
+
+        // QUIC connection setup on UDP 443; other UDP on 443 is just UDP.
+        assert_eq!(udp_class(40000, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]), Protocol::QUIC);
+        assert_eq!(udp_class(40000, 443, &[0x40, 1, 2, 3, 4, 5, 6, 7, 8]), Protocol::UDP);
+        assert_eq!(udp_class(40000, 8443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3]), Protocol::UDP);
+
         let pkt = ipv4(1, A, B, &[8, 0, 0, 0]);
+        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::ICMP);
+        let pkt = ipv6(58, [1; 16], [2; 16], &[135, 0, 0, 0]);
+        assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::ICMP);
+        // GRE has no label of its own.
+        let pkt = ipv4(47, A, B, &[0; 8]);
         assert_eq!(classify(&decode(LinkType::RawIp, &pkt).unwrap()), Protocol::Unknown);
     }
 

@@ -94,6 +94,10 @@ fn mixed_protocols() -> Vec<u8> {
     add(ethernet(0x86dd, &ipv6(17, v6_src, v6_dst, &udp(50007, 53, &dns_query("ipv6.example"))))); // DNS over IPv6
     add(ethernet(0x86dd, &ipv6(6, v6_src, v6_dst, &tcp(50008, 443, SYN, b"")))); // HTTPS over IPv6
     add(with_vlan(&eth_tcp(CLIENT, SERVER, 50009, 80, SYN, b""), 42)); // HTTP inside a VLAN
+    add(eth_udp(CLIENT, SERVER, 50010, 443, &[0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8])); // QUIC initial
+    add(eth_udp(CLIENT, [224, 0, 0, 251], 5353, 5353, &dns_query("printer.local"))); // mDNS
+    add(eth_udp([0, 0, 0, 0], [255, 255, 255, 255], 68, 67, &[1, 1, 6, 0])); // DHCP discover
+    add(eth_udp(CLIENT, [239, 255, 255, 250], 50011, 1900, b"M-SEARCH * HTTP/1.1\r\n\r\n")); // SSDP
     add(ethernet(0x0806, &[0u8; 28])); // ARP: not IP
     add(vec![0xde, 0xad, 0xbe, 0xef]); // runt frame
     add(ethernet(0x0800, &ipv4(1, CLIENT, SERVER, &[8, 0, 0, 0, 0, 1, 0, 1]))); // ICMP echo
@@ -182,16 +186,21 @@ fn syn_flood_is_detected_on_the_victim() {
 #[test]
 fn mixed_protocols_cover_ipv6_vlan_and_skip_non_ip() {
     let s = analyze_pcap(&load("mixed_protocols.pcap")).unwrap();
-    assert_eq!(s.packets, 10);
+    assert_eq!(s.packets, 14);
     assert_eq!(s.undecodable, 2, "ARP and the runt frame");
     assert_eq!(s.count(Protocol::TCP), 1);
-    assert_eq!(s.count(Protocol::UDP), 1);
+    assert_eq!(s.count(Protocol::NTP), 1);
     assert_eq!(s.count(Protocol::DNS), 2, "IPv4 and IPv6");
     assert_eq!(s.count(Protocol::HTTP), 2, "off-port by payload, and inside a VLAN");
     assert_eq!(s.count(Protocol::HTTPS), 2, "IPv4 and IPv6");
     assert_eq!(s.count(Protocol::SSH), 1);
-    assert_eq!(s.count(Protocol::Unknown), 1, "ICMP");
-    assert_eq!(s.hostnames.iter().collect::<Vec<_>>(), ["ipv6.example", "rust-lang.org"]);
+    assert_eq!(s.count(Protocol::QUIC), 1);
+    assert_eq!(s.count(Protocol::MDNS), 1);
+    assert_eq!(s.count(Protocol::DHCP), 1);
+    assert_eq!(s.count(Protocol::SSDP), 1);
+    assert_eq!(s.count(Protocol::ICMP), 1);
+    assert_eq!(s.count(Protocol::UDP) + s.count(Protocol::Unknown), 0, "nothing left unlabelled");
+    assert_eq!(s.hostnames.iter().collect::<Vec<_>>(), ["ipv6.example", "printer.local", "rust-lang.org"]);
     assert!(s.alerts.is_empty());
 }
 

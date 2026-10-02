@@ -12,6 +12,7 @@ use crate::{Severity, ThreatLevel};
 
 /// What kind of behaviour an alert describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AlertKind {
     /// One source probing many ports on one host.
     PortScan,
@@ -521,6 +522,33 @@ mod tests {
             feed(&mut e, VICTIM, src, 40000, TcpFlags::SYN | TcpFlags::ACK, at);
         }
         assert!(e.active_alerts(now).is_empty(), "{:?}", e.active_alerts(now));
+    }
+
+    #[test]
+    fn answering_server_is_not_flagged_while_the_target_table_churns() {
+        // A healthy server keeps answering while thousands of other targets
+        // push the table to its cap. Its state is the most recently used, so
+        // eviction must never reset its SYN-ACK credit.
+        let t0 = Instant::now();
+        let cfg = EngineConfig { max_tracked_hosts: 16, ..EngineConfig::default() };
+        let mut e = ThreatEngine::new(cfg);
+        for i in 0..400u32 {
+            let at = t0 + Duration::from_millis(u64::from(i) * 10);
+            let client = [198, 51, (i / 250) as u8, (i % 250) as u8 + 1];
+            feed(&mut e, client, VICTIM, 443, TcpFlags::SYN, at);
+            feed(&mut e, VICTIM, client, 40000, TcpFlags::SYN | TcpFlags::ACK, at);
+            // Churn: three other targets per round.
+            for j in 0..3u32 {
+                let b = (i * 3 + j).to_be_bytes();
+                feed(&mut e, client, [172, 16, b[2], b[3]], 80, TcpFlags::SYN, at);
+            }
+        }
+        let now = t0 + Duration::from_secs(4);
+        assert!(
+            !e.active_alerts(now).iter().any(|a| a.kind == AlertKind::SynFlood && a.target == Some(ip(VICTIM))),
+            "{:?}",
+            e.active_alerts(now)
+        );
     }
 
     #[test]

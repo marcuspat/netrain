@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(t.len(), 5);
         assert_eq!(t.total_flows(), 5);
         let icmp = t.top_flows(10).into_iter().find(|f| f.key.ip_proto == 1).unwrap();
-        assert_eq!(icmp.summary(), "??? 10.0.0.2 -> 93.184.216.34 active 60 B");
+        assert_eq!(icmp.summary(), "ICMP 10.0.0.2 -> 93.184.216.34 active 60 B");
         let six = t.top_flows(10).into_iter().find(|f| f.initiator.0.is_ipv6()).unwrap();
         assert!(six.summary().contains("[101:101:101:101:101:101:101:101]:51000"), "{}", six.summary());
     }

@@ -100,8 +100,18 @@ Working branch: `claude/sota-loop` (draft PR, never merged by the loop).
       packets on UDP 443 are classified as HTTPS (own label in item 8). `--summary` lists
       hostnames. Property tests on every parser. 169 -> 181 tests. Live smoke test in the dev
       container extracted a real SNI from real traffic.
-- [ ] **8. Protocol coverage.** ICMP/ICMPv6, ARP, QUIC, NTP, DHCP, mDNS, SSDP as first-class
-      protocols; `#[non_exhaustive]` on public enums; port table instead of if-chains.
+- [x] **8. Protocol coverage** (`HASH`). New labels: ICMP (v4 and v6), QUIC, NTP, DHCP (v4 and v6),
+      mDNS, SSDP. `Protocol` and `AlertKind` are `#[non_exhaustive]`; `Protocol::ALL`/`index()`
+      replace hand-written per-protocol fields, so the activity tracker, the PROTOCOLS panel
+      (busiest six seen) and the sparklines (busiest six) are data-driven instead of hard-coded
+      to six names. UDP services use a port table. Not done: ARP, because it is not IP and the
+      decoder and default filter are IP-only by design. Breaking for library users:
+      `ProtocolSnapshot`'s public per-protocol fields became `get(protocol)`.
+      Also this loop, from the review comment on PR #38: an IPv6 extension chain deeper than the
+      decoder follows is now an error (it used to report an extension-header number as
+      `ip_proto`); the default interface prefers a live loopback over a dead Ethernet port; and a
+      regression test pins that an answering server is not flagged while the target table churns
+      (the reported false positive did not reproduce). 181 -> 187 tests.
 - [ ] **9. UI.** Resize handling (and the swallowed-event bug), pause (space), help overlay (`?`),
       protocol filter keys, real process memory (RSS) instead of the placeholder, threat
       colouring in the rain.

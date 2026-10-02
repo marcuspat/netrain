@@ -326,6 +326,8 @@ mod tests {
 
         let pkt = eth_tcp(C, S, 50000, 443, TcpFlags::SYN, b"");
         assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()), None);
+        let pkt = eth_udp([10, 0, 0, 9], [224, 0, 0, 251], 5353, 5353, &dns_query("printer.local"));
+        assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()).unwrap().label(), "dns=printer.local");
         let pkt = eth_udp(C, S, 40000, 123, &dns_query("not-dns.example"));
         assert_eq!(insight(&decode(LinkType::Ethernet, &pkt).unwrap()), None, "port 123 is not DNS");
     }

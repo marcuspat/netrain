@@ -98,6 +98,25 @@ impl PerformanceMonitor {
 /// flood cannot freeze rendering.
 const DRAIN_BUDGET: usize = 4096;
 
+/// Display colour for a protocol, shared by every panel.
+fn protocol_color(protocol: Protocol) -> Color {
+    match protocol {
+        Protocol::TCP => Color::Green,
+        Protocol::UDP => Color::LightGreen,
+        Protocol::HTTP => Color::Blue,
+        Protocol::HTTPS => Color::Cyan,
+        Protocol::DNS => Color::Yellow,
+        Protocol::SSH => Color::Magenta,
+        Protocol::ICMP => Color::LightRed,
+        Protocol::QUIC => Color::LightCyan,
+        Protocol::NTP => Color::LightBlue,
+        Protocol::DHCP => Color::LightYellow,
+        Protocol::MDNS => Color::LightMagenta,
+        Protocol::SSDP => Color::Gray,
+        _ => Color::DarkGray,
+    }
+}
+
 /// Demo mode: synthesise plausible traffic without touching the network.
 fn run_demo(sink: CaptureSink) {
     let demo_ips: [([u8; 4], [u8; 4]); 5] = [
@@ -661,15 +680,17 @@ fn run(cli: &Cli) -> Result<()> {
                 ])
                 .split(matrix_chunks[3]);
             
-            // Define protocol colors matching packet log
-            let protocols = [
-                (Protocol::TCP, Color::Green, "TCP"),
-                (Protocol::UDP, Color::LightGreen, "UDP"),
-                (Protocol::HTTP, Color::Blue, "HTTP"),
-                (Protocol::HTTPS, Color::Cyan, "HTTPS"),
-                (Protocol::DNS, Color::Yellow, "DNS"),
-                (Protocol::SSH, Color::Magenta, "SSH"),
-            ];
+            // One sparkline per slot, for the busiest protocols seen so far;
+            // until there is traffic, the classic six.
+            let mut shown: Vec<Protocol> = app.stats.ranked().into_iter().map(|(p, _)| p).take(6).collect();
+            for p in [Protocol::TCP, Protocol::UDP, Protocol::HTTP, Protocol::HTTPS, Protocol::DNS, Protocol::SSH] {
+                if shown.len() < 6 && !shown.contains(&p) {
+                    shown.push(p);
+                }
+            }
+            shown.sort();
+            let protocols: Vec<(Protocol, Color, &str)> =
+                shown.into_iter().map(|p| (p, protocol_color(p), p.label())).collect();
             
             // Render sparkline for each protocol
             for (i, (protocol, color, name)) in protocols.iter().enumerate() {
@@ -747,31 +768,21 @@ fn run(cli: &Cli) -> Result<()> {
 
             // Protocol stats
             let stats = &app.stats;
-            let total_packets = stats.get_count(Protocol::TCP) + 
-                                    stats.get_count(Protocol::UDP) + 
-                                    stats.get_count(Protocol::HTTP) + 
-                                    stats.get_count(Protocol::HTTPS) +
-                                    stats.get_count(Protocol::DNS) + 
-                                    stats.get_count(Protocol::SSH);
-            
-            let protocol_items: Vec<ListItem> = vec![
-                ListItem::new(format!("TCP:   {} pkt", stats.get_count(Protocol::TCP)))
-                    .style(Style::default().fg(Color::Green)),
-                ListItem::new(format!("UDP:   {} pkt", stats.get_count(Protocol::UDP)))
-                    .style(Style::default().fg(Color::LightGreen)),
-                ListItem::new(format!("HTTP:  {} pkt", stats.get_count(Protocol::HTTP)))
-                    .style(Style::default().fg(Color::Blue)),
-                ListItem::new(format!("HTTPS: {} pkt", stats.get_count(Protocol::HTTPS)))
-                    .style(Style::default().fg(Color::Cyan)),
-                ListItem::new(format!("DNS:   {} pkt", stats.get_count(Protocol::DNS)))
-                    .style(Style::default().fg(Color::Yellow)),
-                ListItem::new(format!("SSH:   {} pkt", stats.get_count(Protocol::SSH)))
-                    .style(Style::default().fg(Color::Magenta)),
-                ListItem::new(format!("----------------"))
-                    .style(Style::default().fg(Color::DarkGray)),
-                ListItem::new(format!("TOT:   {} pkt", total_packets))
+            // Every protocol actually seen, busiest first, as many as fit.
+            let mut protocol_items: Vec<ListItem> = stats
+                .ranked()
+                .into_iter()
+                .take(6) // the panel has room for six rows plus the total
+                .map(|(p, count)| {
+                    ListItem::new(format!("{:<7}{} pkt", format!("{}:", p.label()), count))
+                        .style(Style::default().fg(protocol_color(p)))
+                })
+                .collect();
+            protocol_items.push(ListItem::new("----------------").style(Style::default().fg(Color::DarkGray)));
+            protocol_items.push(
+                ListItem::new(format!("TOT:   {} pkt", stats.total_packets()))
                     .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            ];
+            );
             
             let protocols_list = List::new(protocol_items)
                 .block(Block::default()

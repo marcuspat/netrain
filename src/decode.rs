@@ -166,7 +166,10 @@ pub enum Transport {
 pub struct Decoded<'a> {
     pub src: IpAddr,
     pub dst: IpAddr,
-    /// Final IP protocol number (after any IPv6 extension headers).
+    /// The upper-layer protocol number: the IPv4 protocol field, or the IPv6
+    /// next-header value after all extension headers. For a fragment this is
+    /// the protocol of the fragmented datagram while `transport` is
+    /// [`Transport::Fragment`].
     pub ip_proto: u8,
     /// IPv4 TTL / IPv6 hop limit.
     pub ttl: u8,
@@ -358,6 +361,12 @@ fn decode_ipv6(ip: &[u8]) -> Result<Decoded<'_>, DecodeError> {
         }
     }
 
+    // More extension headers than we are willing to follow: refuse rather
+    // than report an extension-header number as the transport protocol.
+    if matches!(next, 0 | 43 | 44 | 51 | 60) {
+        return Err(DecodeError::BadHeaderLength(Layer::Network));
+    }
+
     let (transport, payload) = if is_fragment {
         (Transport::Fragment, &ip[end..end])
     } else {
@@ -547,6 +556,29 @@ mod tests {
         let d = decode(LinkType::Ethernet, &pkt).unwrap();
         assert_eq!(d.ip_proto, 6);
         assert_eq!(d.dst_port(), Some(443));
+    }
+
+    #[test]
+    fn overlong_ipv6_extension_chain_is_rejected() {
+        // Nine chained destination-options headers, then TCP. `ip_proto` must
+        // never be reported as an extension-header number.
+        let mut body = Vec::new();
+        for i in 0..9 {
+            body.extend_from_slice(&[if i == 8 { 6 } else { 60 }, 0, 0, 0, 0, 0, 0, 0]);
+        }
+        body.extend_from_slice(&tcp(1, 443, TcpFlags::SYN, b""));
+        let pkt = ipv6(60, [1; 16], [2; 16], &body);
+        assert_eq!(decode(LinkType::RawIp, &pkt), Err(DecodeError::BadHeaderLength(Layer::Network)));
+
+        // Eight is still followed to the real transport.
+        let mut body = Vec::new();
+        for i in 0..8 {
+            body.extend_from_slice(&[if i == 7 { 6 } else { 60 }, 0, 0, 0, 0, 0, 0, 0]);
+        }
+        body.extend_from_slice(&tcp(1, 443, TcpFlags::SYN, b""));
+        let pkt = ipv6(60, [1; 16], [2; 16], &body);
+        let d = decode(LinkType::RawIp, &pkt).unwrap();
+        assert_eq!((d.ip_proto, d.dst_port()), (6, Some(443)));
     }
 
     #[test]

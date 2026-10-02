@@ -259,10 +259,12 @@ pub fn choose_device(devices: &[DeviceInfo], requested: Option<&str>) -> Result<
         if pseudo {
             return 0;
         }
-        1 + u32::from(!d.loopback) * 8
-            + u32::from(d.up) * 4
-            + u32::from(d.running) * 2
-            + u32::from(d.has_address)
+        // Liveness outranks kind: a working loopback beats a dead Ethernet
+        // port, which would only fail to open.
+        1 + u32::from(d.running) * 16
+            + u32::from(d.up) * 8
+            + u32::from(!d.loopback) * 4
+            + u32::from(d.has_address) * 2
     };
     // max_by_key returns the last maximum; iterate reversed to keep the first.
     devices
@@ -375,6 +377,9 @@ mod tests {
         assert_eq!(choose_device(&mac, None), Ok(2));
         // Only loopback available: still usable.
         assert_eq!(choose_device(&[dev("lo", true, true, true, true)], None), Ok(0));
+        // Every real interface is down: a live loopback beats a dead port.
+        let unplugged = [dev("eth0", false, false, false, true), dev("lo", true, true, true, true)];
+        assert_eq!(choose_device(&unplugged, None), Ok(1));
         // Ties keep pcap's ordering.
         let tie = [dev("eth0", true, true, false, true), dev("eth1", true, true, false, true)];
         assert_eq!(choose_device(&tie, None), Ok(0));

@@ -466,8 +466,12 @@ mod tests {
     }
 }
 
-// Placeholder types and functions that will be implemented
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+/// Application or transport protocol a packet was classified as.
+///
+/// New protocols are added over time, so matches outside this crate need a
+/// wildcard arm.
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Protocol {
     TCP,
     UDP,
@@ -475,7 +479,42 @@ pub enum Protocol {
     HTTPS,
     DNS,
     SSH,
+    /// ICMP and ICMPv6 (ping, unreachable, neighbour discovery, ...).
+    ICMP,
+    /// QUIC connection setup (HTTP/3).
+    QUIC,
+    NTP,
+    /// DHCP and DHCPv6.
+    DHCP,
+    /// Multicast DNS (Bonjour/Avahi).
+    MDNS,
+    /// SSDP / UPnP discovery.
+    SSDP,
     Unknown,
+}
+
+impl Protocol {
+    /// Every protocol, in display order.
+    pub const ALL: [Protocol; 13] = [
+        Protocol::TCP,
+        Protocol::UDP,
+        Protocol::HTTP,
+        Protocol::HTTPS,
+        Protocol::DNS,
+        Protocol::SSH,
+        Protocol::ICMP,
+        Protocol::QUIC,
+        Protocol::NTP,
+        Protocol::DHCP,
+        Protocol::MDNS,
+        Protocol::SSDP,
+        Protocol::Unknown,
+    ];
+
+    /// Position in [`Protocol::ALL`]; a dense index for per-protocol arrays.
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|p| *p == self).unwrap_or(Self::ALL.len() - 1)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -598,6 +637,19 @@ impl ProtocolStats {
         *self.bytes.get(&protocol).unwrap_or(&0)
     }
 
+    /// Packets counted across every protocol.
+    pub fn total_packets(&self) -> usize {
+        self.counts.values().sum()
+    }
+
+    /// Protocols that have been seen, busiest first; ties in display order.
+    pub fn ranked(&self) -> Vec<(Protocol, usize)> {
+        let mut seen: Vec<(Protocol, usize)> =
+            self.counts.iter().filter(|(_, &n)| n > 0).map(|(p, &n)| (*p, n)).collect();
+        seen.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        seen
+    }
+
     pub fn get_percentage(&self, protocol: Protocol) -> f32 {
         let total_packets = self.counts.values().sum::<usize>();
         if total_packets == 0 {
@@ -685,6 +737,12 @@ impl Protocol {
             Protocol::HTTPS => "HTTPS",
             Protocol::DNS => "DNS",
             Protocol::SSH => "SSH",
+            Protocol::ICMP => "ICMP",
+            Protocol::QUIC => "QUIC",
+            Protocol::NTP => "NTP",
+            Protocol::DHCP => "DHCP",
+            Protocol::MDNS => "MDNS",
+            Protocol::SSDP => "SSDP",
             Protocol::Unknown => "???",
         }
     }
