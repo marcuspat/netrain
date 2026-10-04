@@ -170,12 +170,17 @@ impl ReplayAnalyzer {
         wire_len: usize,
     ) -> Option<Observation> {
         let first = *self.first_micros.get_or_insert(ts_micros);
-        // Timestamps can go backwards in real captures; never move the clock back.
-        // (Saturating: a corrupt file can hold any timestamp.)
-        self.last_micros = self.last_micros.max(ts_micros.saturating_sub(first));
-        // Clamp the span: adding an absurd duration to an `Instant` panics,
-        // and a corrupt timestamp must not be able to do that.
-        self.last_micros = self.last_micros.min(MAX_STREAM_MICROS);
+        // Timestamps can go backwards in real captures; never move the clock
+        // back. (Saturating: a corrupt file can hold any timestamp.)
+        // A sample beyond MAX_STREAM_MICROS advances the clock nothing: an
+        // absurd duration added to an `Instant` panics, and CLAMPING the
+        // register would pin it at the cap forever — freezing the clock and
+        // disabling alert expiry for the rest of the capture (gate r2). The
+        // register only ever holds sane deltas, so the epoch add stays safe.
+        let delta = ts_micros.saturating_sub(first);
+        if delta <= MAX_STREAM_MICROS {
+            self.last_micros = self.last_micros.max(delta);
+        }
         let now = self.epoch + Duration::from_micros(self.last_micros as u64);
 
         let Ok((event, decoded)) = observe(link, data, wire_len) else {
@@ -408,15 +413,17 @@ mod tests {
     fn absurd_timestamps_do_not_panic() {
         let f = eth_udp([10, 0, 0, 2], [8, 8, 8, 8], 4000, 53, b"q");
         let mut a = ReplayAnalyzer::default();
-        for ts in [0, i64::MAX, i64::MIN, -1, i64::MAX - 1, 5] {
+        for ts in [0, i64::MAX, i64::MIN, -1, i64::MAX - 1, 5, 60_000_000] {
             a.feed(LinkType::Ethernet, ts, &f, f.len());
         }
         let summary = a.finish();
-        assert_eq!(summary.packets, 6);
-        assert_eq!(
-            summary.duration,
-            Duration::from_micros(MAX_STREAM_MICROS as u64)
-        );
+        assert_eq!(summary.packets, 7);
+        // Out-of-range samples advance the clock NOTHING, and the register is
+        // never pinned at the ten-year cap: a sane sample arriving after the
+        // corrupt ones still moves the clock (gate r2 — a pinned clock would
+        // freeze alert expiry for the rest of the capture). The clock ends at
+        // the last sane sample: 60s.
+        assert_eq!(summary.duration, Duration::from_micros(60_000_000));
     }
 
     #[test]
