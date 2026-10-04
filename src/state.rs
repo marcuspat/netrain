@@ -174,8 +174,19 @@ impl AppState {
             }
             Command::ToggleHelp => self.show_help = !self.show_help,
             Command::CycleFilter => {
-                // Cycle: all -> each protocol seen (busiest first) -> all.
-                let seen: Vec<Protocol> = self.stats.ranked().into_iter().map(|(p, _)| p).collect();
+                // Cycle: all -> each protocol VISIBLE IN THE LOG (busiest
+                // first) -> all. Stats count paused packets too; the log does
+                // not, so ranking by stats alone can select a protocol with
+                // zero visible lines and blank the log (gate r1).
+                let in_log: Vec<Protocol> =
+                    self.packet_log.iter().map(|e| e.protocol).collect();
+                let seen: Vec<Protocol> = self
+                    .stats
+                    .ranked()
+                    .into_iter()
+                    .map(|(p, _)| p)
+                    .filter(|p| in_log.contains(p))
+                    .collect();
                 self.log_filter = match self.log_filter {
                     None => seen.first().copied(),
                     Some(current) => seen

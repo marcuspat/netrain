@@ -57,7 +57,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked --test headless_tests --no-run
-      - run: sudo -E env "PATH=$PATH" cargo test --locked --test headless_tests live_capture -- --nocapture
+      # NETRAIN_CI_LIVE: in CI the test's skip paths panic instead of returning
+      # (gate r1) — a green job proves the capture ran, never that it quietly
+      # degraded into a no-op
+      - run: sudo -E env "PATH=$PATH" NETRAIN_CI_LIVE=1 cargo test --locked --test headless_tests live_capture -- --nocapture
 
   msrv:
     name: minimum Rust version

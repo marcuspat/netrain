@@ -155,19 +155,29 @@ fn misused_flags_are_explained() {
 }
 
 /// Live capture on loopback. Needs permission to capture, so it only runs
-/// where the test process is root (CI containers); elsewhere it is a no-op.
+/// where the test process is root (CI containers); elsewhere it is a no-op —
+/// except under NETRAIN_CI_LIVE=1 (set by the CI job), where every skip
+/// condition panics instead: a green CI run must mean the capture really
+/// happened (gate r1), never that the environment quietly degraded.
 #[cfg(target_os = "linux")]
 #[test]
 fn live_capture_drops_root_and_keeps_working() {
     use std::net::UdpSocket;
     use std::time::Duration;
 
+    fn skip_or_panic(why: &str) {
+        if std::env::var_os("NETRAIN_CI_LIVE").is_some() {
+            panic!("live-capture preconditions unmet in CI: {why}");
+        }
+        eprintln!("skipped: {why}");
+    }
+
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let is_root = status
         .lines()
         .any(|l| l.starts_with("Uid:") && l.split_whitespace().nth(2) == Some("0"));
     if !is_root {
-        eprintln!("skipped: not root");
+        skip_or_panic("not root");
         return;
     }
 
@@ -205,7 +215,7 @@ fn live_capture_drops_root_and_keeps_working() {
         || stderr.contains("Failed to list")
         || stderr.contains("not found")
     {
-        eprintln!("skipped: capture unavailable here: {stderr}");
+        skip_or_panic(&format!("capture unavailable here: {stderr}"));
         return;
     }
     assert!(out.status.success(), "{stderr}");

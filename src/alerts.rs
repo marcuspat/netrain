@@ -217,6 +217,12 @@ fn prune(queue: &mut VecDeque<Instant>, now: Instant, window: Duration) {
 
 impl ThreatEngine {
     pub fn new(config: EngineConfig) -> Self {
+        let mut config = config;
+        // gate r1: a zero capacity underflows make_room's eviction index on
+        // the first observation (0 - 1 in debug, select_nth_unstable(usize::MAX)
+        // in release). Clamp the same way NameCache does — a degenerate config
+        // tracks one host, it never panics.
+        config.max_tracked_hosts = config.max_tracked_hosts.max(1);
         Self {
             config,
             sources: HashMap::new(),
@@ -267,15 +273,18 @@ impl ThreatEngine {
     fn observe_rate(&mut self, now: Instant) {
         self.recent.push_back(now);
         prune(&mut self.recent, now, Duration::from_secs(1));
-        // The queue only needs to prove the threshold was crossed.
-        let cap = (self.config.rate_threshold as usize)
+        // The queue only needs to prove the threshold was crossed. ceil, not
+        // truncate: a fractional threshold (0.5/s) must still leave room for
+        // one packet without instantly re-firing (gate r1).
+        let cap = (self.config.rate_threshold.ceil() as usize)
             .saturating_add(1)
             .max(1);
         while self.recent.len() > cap {
             self.recent.pop_front();
         }
         if self.recent.len() as f64 > self.config.rate_threshold {
-            let limit = self.config.rate_threshold as u64;
+            // f64, not `as u64`: a 0.5 threshold used to read "over 0 packets/s"
+            let limit = self.config.rate_threshold;
             self.raise(
                 AlertKind::TrafficSpike,
                 None,
@@ -815,6 +824,20 @@ mod tests {
             e.observe(&d, t0 + Duration::from_secs(i));
         }
         assert!(e.active_alerts(t0 + Duration::from_secs(60)).is_empty());
+    }
+
+    #[test]
+    fn zero_max_tracked_hosts_is_clamped_never_panics() {
+        // gate r1: a zero capacity must not underflow make_room's eviction
+        // index on the first observation — it clamps to tracking one host
+        let t0 = Instant::now();
+        let mut e = ThreatEngine::new(EngineConfig {
+            max_tracked_hosts: 0,
+            ..EngineConfig::default()
+        });
+        feed(&mut e, ATTACKER, VICTIM, 22, TcpFlags::SYN, t0);
+        feed(&mut e, [192, 0, 2, 77], VICTIM, 23, TcpFlags::SYN, t0);
+        assert_eq!(e.tracked_hosts(), 1, "degenerate config tracks one host");
     }
 
     #[test]

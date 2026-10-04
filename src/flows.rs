@@ -293,12 +293,12 @@ impl FlowTable {
                 // A fresh SYN on a finished flow is a new connection reusing the ports.
                 FlowState::Opening
             } else if flow.state == FlowState::Opening && flags.ack() {
-                // SYN-ACK from the responder, or the final ACK of the handshake.
-                if flags.syn() || src == flow.initiator {
-                    FlowState::Established
-                } else {
-                    FlowState::Opening
-                }
+                // Any ACK settles it: the responder's SYN-ACK, the
+                // initiator's final handshake ACK — or a bare data ACK from
+                // either side when the capture began mid-handshake and the
+                // SYN-ACK never landed. The old code left such flows Opening
+                // for life (gate r1).
+                FlowState::Established
             } else {
                 flow.state
             };
@@ -495,6 +495,34 @@ mod tests {
         );
         let syn = FlowKey::new(6, (C.into(), 53000), (S.into(), 81));
         assert_eq!(t.get(&syn).unwrap().state, FlowState::Opening);
+    }
+
+    #[test]
+    fn responder_bare_ack_settles_a_mid_handshake_capture() {
+        // gate r1: capture starts at the SYN, the SYN-ACK is lost to the
+        // capture, and the responder's first visible segment is a bare ACK —
+        // the flow must still reach Established, not stay Opening for life
+        let t0 = Instant::now();
+        let mut t = FlowTable::default();
+        let key = FlowKey::new(6, (C.into(), 54000), (S.into(), 82));
+        feed(
+            &mut t,
+            &eth_tcp(C, S, 54000, 82, TcpFlags::SYN, b""),
+            60,
+            t0,
+        );
+        assert_eq!(t.get(&key).unwrap().state, FlowState::Opening);
+        feed(
+            &mut t,
+            &eth_tcp(S, C, 82, 54000, TcpFlags::ACK, b"data"),
+            60,
+            t0,
+        );
+        assert_eq!(
+            t.get(&key).unwrap().state,
+            FlowState::Established,
+            "responder bare ACK on an Opening flow settles it"
+        );
     }
 
     #[test]
