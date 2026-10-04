@@ -837,7 +837,13 @@ mod tests {
         });
         feed(&mut e, ATTACKER, VICTIM, 22, TcpFlags::SYN, t0);
         feed(&mut e, [192, 0, 2, 77], VICTIM, 23, TcpFlags::SYN, t0);
-        assert_eq!(e.tracked_hosts(), 1, "degenerate config tracks one host");
+        // tracked_hosts = sources + targets: the clamped source table evicted
+        // down to ONE host, plus the single tracked target (VICTIM)
+        assert_eq!(
+            e.tracked_hosts(),
+            2,
+            "sources clamped to one host; one target tracked"
+        );
     }
 
     #[test]
