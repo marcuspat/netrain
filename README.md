@@ -8,7 +8,7 @@
 
 > *"Welcome to the real world."* - Morpheus
 
-A **Matrix-style network packet monitor** with real-time threat detection and stunning terminal visualizations. Built with Rust for maximum performance.
+A **Matrix-style network packet monitor** for the terminal: live capture or pcap replay, protocol and hostname insight, flows, and scan/flood detection, with a JSON mode for scripts. Written in Rust.
 
 ⚡ **Quick Start**: Install Rust → `cargo install netrain` → `sudo netrain` (or `netrain --demo`)
 
@@ -21,49 +21,63 @@ A **Matrix-style network packet monitor** with real-time threat detection and st
 
 ![netrain --demo — live packet log, threat detection, and hex dump in the terminal](demo.gif)
 
-*Demo mode (`netrain --demo`) — no root or live interface needed. Recorded from the actual binary with [asciinema](https://asciinema.org) + [agg](https://github.com/asciinema/agg).*
+*Demo mode (`netrain --demo`) — no root or live interface needed. Recorded from the binary with [asciinema](https://asciinema.org) + [agg](https://github.com/asciinema/agg). The recording predates the current layout (flows, top talkers, alert details, help overlay).*
 
 ## ⚡ Performance
 
-- **Real-time rendering** with particle effects and smooth animation
-- **Sub-millisecond threat-detection logic** — the detection function itself benchmarks at 29ns per packet in isolation; this is a micro-benchmark of one function, not an end-to-end capture-to-alert measurement including pcap I/O and rendering
-- **Zero-allocation** hot paths for maximum efficiency
+Benchmarks of netrain's own code on in-memory packets (2 vCPU Xeon @ 2.10GHz, one thread);
+they exclude libpcap, the kernel and terminal rendering:
+
+- **Decode**: 20 ns per packet. **Decode, classify and extract hostnames**: 89 ns per packet.
+- **Full path to the UI state** (statistics, flows, threat engine, log line): about 1 M packets/s.
+- **Under attack**: the threat engine handles a SYN flood from 20,000 spoofed sources at
+  1.2 M packets/s, and a single-source port scan at 1.8 M packets/s.
+- **Bounded memory**: every table is capped; the demo runs at about 10 MB.
+
+Method, numbers and what is not measured: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## ✨ Features
 
-### 🌊 Visual Experience
-- **Authentic Matrix rain** with cascading characters
-- **Rainbow mode** for critical threats
-- **3D depth illusion** with variable column speeds  
-- **Particle effects** on packet arrival
-- **Real-time animations** with smooth interpolation
+### 🛡️ Threat detection
+- **Port scans** (many ports on one host) and **host sweeps** (one port across many hosts)
+- **Stealth scans** using NULL, FIN-only or Xmas TCP flags
+- **SYN floods**, judged by unanswered connection attempts so a busy server that replies is not flagged
+- **Traffic spikes**
+- Alerts name the source, the target and the evidence, and clear 30 seconds after the behaviour stops
+- Default thresholds: 20 ports or hosts in 60 s, 100 unanswered SYNs in 10 s, 1000 packets/s
 
-### 🛡️ Security Monitoring
-- **Port scan detection** with time-window analysis
-- **DDoS-pattern alerts** (traffic spike detection)
-- **Anomaly detection** for malformed packets
-- **Real-time threat visualization** with color-coded alerts
+### 📊 Network analysis
+- **Decoding**: Ethernet (with VLAN tags), raw IP, loopback and Linux cooked captures; IPv4 and IPv6; TCP, UDP, ICMP
+- **Protocols**: TCP, UDP, HTTP, HTTPS, DNS, SSH, ICMP, QUIC, NTP, DHCP, mDNS, SSDP
+- **Hostnames** from DNS queries, TLS server names (SNI) and HTTP `Host` headers
+- **Passive name cache**: DNS answers seen on the wire label addresses; netrain never does lookups itself
+- **Flows**: per-connection packets and bytes in each direction, with TCP state
+- **Top talkers** ranked by bytes
+- **Drop counter**: packets lost in the kernel, the interface or netrain's own queue
 
-### 📊 Network Analysis
-- **Protocol classification** (TCP, UDP, HTTP, HTTPS, DNS, SSH)
-- **IP address tracking** with real-time packet counting
-- **Top active IPs display** showing most active network endpoints
-- **Enhanced packet log** with a wider display panel for better visibility
-- **Live packet capture** with pcap integration
-- **Traffic statistics** and rate monitoring
-- **Performance metrics** (FPS, memory usage, packet rates)
+### 🖥️ Interface
+- Matrix rain driven by packet arrivals
+- Packet log with protocol filter and pause
+- Protocol counts and sparklines for the busiest protocols
+- Hex dump of the latest packet
+- Help overlay, resize handling, and a clear message when the terminal is too small
 
-### 🎮 User Experience
-- **Demo mode** for showcasing without network access
-- **Keyboard controls** (Q to quit)
-- **Responsive UI** that adapts to terminal size
-- **Professional terminal interface** with styled borders
+### 🔧 Modes
+- **Live capture**, **pcap replay** (`--read`), and **demo** (`--demo`, synthetic traffic)
+- **Headless**: `--json` (newline-delimited JSON) or `--headless` (plain text), for pipes and servers
+- **Summary**: `--read FILE --summary` prints what a capture contained and exits
+
+### Limits worth knowing
+- No TCP stream reassembly: a TLS handshake split across segments yields no server name.
+- Detection thresholds are fixed defaults, not yet configurable from the command line.
+- Encrypted payloads are not inspected; classification uses ports, flags and the first bytes.
+- Linux and macOS are tested in CI. Windows is untested.
 
 ## 🚀 Installation
 
 ### From crates.io (Recommended)
 
-**Requirements**: Rust 1.70+ must be installed first
+**Requirements**: Rust 1.88+ must be installed first
 
 ```bash
 cargo install netrain
@@ -71,7 +85,7 @@ cargo install netrain
 
 ### From Source
 
-**Requirements**: Rust 1.70+ must be installed first
+**Requirements**: Rust 1.88+ must be installed first
 
 ```bash
 # Clone the repository
@@ -88,7 +102,7 @@ cargo build --release
 
 ### Install Rust (Required)
 
-NetRain requires Rust 1.70+ for both installation methods above.
+NetRain requires Rust 1.88+ for both installation methods above.
 
 ```bash
 # Install Rust via rustup (recommended)
@@ -126,72 +140,84 @@ sudo apt-get install libpcap-dev
 ## 🎯 Usage
 
 ```bash
-# Run with packet capture (requires root/admin)
-sudo netrain
+sudo netrain                              # live capture on the default interface
+sudo netrain -i eth0 -f "tcp port 443"    # choose interface and BPF filter
+netrain --list-interfaces                 # what can be captured on
+netrain --demo                            # synthetic traffic, no privileges
 
-# Run in demo mode (no root required)
-netrain --demo
+netrain --read trace.pcap                 # replay a capture in the UI
+netrain --read trace.pcap --summary       # print a summary and exit
+netrain --read trace.pcap --json          # one JSON object per packet and alert
 
-# Show help
-netrain --help
-
-# Show version
-netrain --version
+sudo netrain --json --alerts-only         # alerts and a final summary, for log shippers
+sudo netrain --headless --count 1000      # plain text, stop after 1000 packets
 ```
 
+`netrain --help` lists every option. JSON schema: [docs/JSON_OUTPUT.md](docs/JSON_OUTPUT.md).
+
 ### Keyboard Controls
-- **Q** - Quit the application
+| key | action |
+|---|---|
+| `q` | quit |
+| `space` / `p` | pause the packet log and hex dump (analysis keeps running) |
+| `f` | filter the log by protocol, cycling through those seen |
+| `a` | show all protocols |
+| `?` / `h` | help |
+| `esc` | close help, or clear the filter |
 
 ### Understanding the Interface
 
-#### Matrix Rain Panel (Left 70%)
-- **Green characters** falling like rain represent network packets
-- **White leading characters** indicate active packet transmission
-- **Character density** correlates with network activity
-- **Responsive animation** with smooth frame updates
+- **Top bar**: version, capture source, FPS, packets per second, threat level.
+- **Rain** (top left): a column falls for each packet; the border turns red while an alert is active.
+- **Packet log** (left): top talkers by bytes, the heaviest flows, then one line per packet,
+  for example `[12:00:01] HTTPS 10.0.0.2 -> 93.184.216.34 [134B] sni=example.com`.
+- **Sparklines** (bottom left): activity of the six busiest protocols.
+- **Right column**: performance (FPS, packets/s, memory, drops), protocol counts, threat
+  monitor with up to three alert details, and a hex dump of the latest packet.
 
-#### Packet Log Panel (Main Center Area)
-- **Top Active IPs** - Shows the 3 most active IP addresses with packet counts
-  - Format: `#1 192.168.1.105 (15 pkts)`
-  - Real-time updates as traffic flows
-- **Enhanced packet display** - Wider panel for better visibility
-- **Protocol color coding** - Different colors for HTTP, HTTPS, DNS, SSH, TCP, UDP
-- **Real-time timestamps** - Shows exact time of packet capture
-- **Live packet stream** - Up to 50 recent packets with automatic scrolling
+### Privileges
 
-#### Statistics Panel (Right 30%)
-- **Performance** - FPS, packet rate, memory usage
-- **Protocol Stats** - Breakdown by protocol type with live counts
-- **Threat Monitor** - Real-time security alerts
-- **Network Graphs** - Compact sparklines for each protocol type
+Live capture needs permission to open the interface. netrain drops root as soon as the capture
+is open, so packets are parsed unprivileged, and it can run without `sudo` at all:
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin+eip "$(command -v netrain)"
+```
+
+Promiscuous mode is off by default (`--promiscuous` to enable). Details: [docs/PRIVILEGES.md](docs/PRIVILEGES.md).
 
 ## 🧪 Development
 
-### Running Tests
 ```bash
-cargo test
+cargo test                                   # unit, golden, binary and fuzz-smoke tests
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all --check
+cargo bench --bench pipeline                 # the real packet path
+NETRAIN_FUZZ_ITERS=2000000 cargo test --test fuzz_smoke
 ```
 
-### Benchmarks
-```bash
-cargo bench
-```
+Tests need no root and no network. One test captures on loopback and runs only as root.
+CI runs all of the above on Linux and macOS, plus `cargo-deny`.
 
 ## 📈 Technical Architecture
 
-### Performance Optimizations
-- **Zero-allocation packet parsing** using unsafe optimizations
-- **Lookup tables** for character generation (11x faster)
-- **Object pooling** for matrix characters and columns
-- **Lock-free atomic counters** for performance metrics
+```
+capture thread                        UI thread
+pcap -> decode -> classify ----------> state: stats, flows, names,
+        (zero-copy)   inspect   bounded        threat engine, log
+                                channel  ----> ratatui
+```
 
-*(SIMD is on the roadmap for further optimization, but no SIMD code exists in this codebase today.)*
+- **One decode path** for live capture, replay, headless output and tests.
+- **No locks on the packet path**: the capture thread sends small records over a bounded
+  channel; when the UI cannot keep up, records are dropped and counted.
+- **Everything is bounded**: host tables, flows, alerts, names and the log all have caps.
+- **Untrusted input**: the library forbids `unsafe`; parsers are bounds-checked,
+  property-tested and fuzzed; hostnames are validated before display.
+- **Least privilege**: root is dropped once the capture is open.
 
-### Security Features
-- **Time-window analysis** for pattern detection
-- **Pre-configured thresholds** for different attack types
-- **Multi-threaded packet processing** with lock-free coordination
-- **Memory-safe** implementation despite performance optimizations
+More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/PERFORMANCE.md](docs/PERFORMANCE.md),
+[docs/PRIVILEGES.md](docs/PRIVILEGES.md).
 
 ## 🤝 Contributing
 
@@ -218,17 +244,13 @@ git push origin feature/amazing-feature
 
 ## 📋 System Requirements
 
-### Minimum Requirements
-- **OS**: Linux, macOS, or Windows
-- **RAM**: 256 MB
-- **CPU**: Any 64-bit processor
-- **Network**: Any interface supported by pcap
-
-### Recommended for Best Experience
-- **Terminal**: Modern terminal with Unicode support
-- **Colors**: 256-color or True Color support
-- **Size**: At least 80x24 characters
-- **Privileges**: Root/Administrator for live packet capture
+- **OS**: Linux or macOS (tested in CI). Windows with Npcap may build but is untested.
+- **Rust**: 1.88 or newer, and libpcap headers (`libpcap-dev` on Debian/Ubuntu).
+- **Terminal**: at least 80x24, Unicode and 256 colours recommended. Not needed for
+  `--json`, `--headless` or `--summary`.
+- **Privileges**: permission to capture for live mode (see Privileges above); none for
+  `--demo` and `--read`.
+- **Memory**: about 10 MB resident in the demo.
 
 ## 🐛 Troubleshooting
 
@@ -244,20 +266,26 @@ source ~/.cargo/env
 cargo --version
 ```
 
-#### Permission Denied
+#### "Cannot capture on ..."
 ```bash
-# On Linux/macOS, packet capture requires root privileges
+# Capturing needs permission. Either:
 sudo netrain
-
-# Or use demo mode
+# or grant the binary the capability once (Linux):
+sudo setcap cap_net_raw,cap_net_admin+eip "$(command -v netrain)"
+# or use a mode that needs none:
 netrain --demo
+netrain --read trace.pcap
 ```
 
-#### No Network Interface Found
+#### Wrong or no interface
 ```bash
-# Use demo mode if no interfaces available
-netrain --demo
+netrain --list-interfaces      # the default is marked with *
+sudo netrain -i eth0
 ```
+
+#### Nothing from other machines shows up
+Promiscuous mode is off by default. Add `--promiscuous` to see traffic not addressed to
+this host (on a shared segment or mirror port).
 
 #### Terminal Display Issues
 ```bash
@@ -296,18 +324,11 @@ export CARGO_BUILD_JOBS=1
 cargo install netrain
 ```
 
-**Solution 3: Use Pre-built Binary**
-Check if pre-built binaries are available for your release:
-```bash
-# Visit https://github.com/marcuspat/netrain/releases
-# Download the appropriate binary for your system
-# For example, for Linux x86_64:
-wget https://github.com/marcuspat/netrain/releases/download/vX.Y.Z/netrain-linux-amd64.tar.gz
-tar -xzf netrain-linux-amd64.tar.gz
-sudo mv netrain /usr/local/bin/
-sudo chmod +x /usr/local/bin/netrain
-```
-*Note: Replace vX.Y.Z with the actual version number*
+**Solution 3: Use a pre-built binary**
+
+Releases that carry binaries list them at https://github.com/marcuspat/netrain/releases as
+`netrain-vX.Y.Z-<target>.tar.gz` with a `.sha256` file beside each. Verify the checksum,
+unpack, and move `netrain` onto your `PATH`. Not every release has binaries.
 
 ## 📝 License
 
@@ -337,6 +358,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 [⭐ Star on GitHub](https://github.com/marcuspat/netrain) | [🍴 Fork](https://github.com/marcuspat/netrain/fork) | [📋 Issues](https://github.com/marcuspat/netrain/issues)
 
 </div>
+
 ## Ecosystem
 
 | Repo | What it does |

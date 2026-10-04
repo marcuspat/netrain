@@ -1,0 +1,5 @@
+# Commits that only reformat code. Use with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: cargo fmt
+07787c96dca262a58a5897a29e48950fda564dda

@@ -1,19 +1,38 @@
 // NetRain - Matrix-style network packet monitor with threat detection
 
-pub mod packet;
+// Everything in this library handles bytes an attacker can choose. It has no
+// need for `unsafe`, and the compiler now enforces that it stays that way.
+#![forbid(unsafe_code)]
+
+pub mod alerts;
+pub mod capture;
+pub mod classify;
+pub mod decode;
+pub mod dns;
+pub mod export;
+pub mod flows;
+pub mod inspect;
 pub mod matrix_rain;
-pub mod simple_matrix;
-pub mod threat_detection;
 pub mod optimized;
+pub mod packet;
+pub mod pcapfile;
+pub mod pipeline;
 pub mod protocol_activity;
+pub mod replay;
+pub mod simple_matrix;
+pub mod state;
+pub mod synth;
+pub mod sysinfo;
+pub mod threat_detection;
 
 // Re-export commonly used items for benchmarking and external use
-pub use matrix_rain::{MatrixRain, CharacterSet, VisualMode, Particle};
+pub use alerts::{Alert, AlertKind, EngineConfig, ThreatEngine};
+pub use matrix_rain::{CharacterSet, MatrixRain, Particle, VisualMode};
+pub use optimized::{classify_protocol_optimized, parse_packet_optimized};
+pub use packet::{classify_protocol, extract_protocol, parse_packet, validate_packet};
 pub use simple_matrix::SimpleMatrixRain;
-pub use packet::{parse_packet, classify_protocol, extract_protocol, validate_packet};
-pub use threat_detection::{ThreatDetector, ThreatConfig};
-pub use optimized::{parse_packet_optimized, classify_protocol_optimized};
 use std::collections::HashMap;
+pub use threat_detection::{ThreatConfig, ThreatDetector};
 
 #[cfg(test)]
 mod tests {
@@ -76,7 +95,6 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "Invalid packet length")]
         fn test_validate_packet_invalid_length() {
             let packet = Packet {
                 data: vec![0x45],
@@ -85,7 +103,7 @@ mod tests {
                 src_ip: "192.168.1.1".to_string(),
                 dst_ip: "192.168.1.2".to_string(),
             };
-            validate_packet(&packet);
+            assert!(!validate_packet(&packet));
         }
     }
 
@@ -172,9 +190,11 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "Negative traffic rate")]
         fn test_rain_density_negative_traffic() {
-            calculate_rain_density(-100.0);
+            // Nonsense input degrades to "no traffic"; it must not panic.
+            assert_eq!(calculate_rain_density(-100.0), 0.0);
+            assert_eq!(calculate_rain_density(f32::NAN), 0.0);
+            assert_eq!(calculate_rain_density(f32::INFINITY), 1.0);
         }
     }
 
@@ -186,12 +206,12 @@ mod tests {
         fn test_port_scan_detection_positive() {
             let mut detector = ThreatDetector::new();
             let source_ip = "192.168.1.100".parse::<IpAddr>().unwrap();
-            
+
             // Simulate port scan - many ports in short time
             for port in 1000..1100 {
                 detector.add_connection(source_ip, port);
             }
-            
+
             assert!(detector.is_port_scan(source_ip));
         }
 
@@ -199,24 +219,24 @@ mod tests {
         fn test_port_scan_detection_negative() {
             let mut detector = ThreatDetector::new();
             let source_ip = "192.168.1.100".parse::<IpAddr>().unwrap();
-            
+
             // Normal traffic - few ports
             detector.add_connection(source_ip, 80);
             detector.add_connection(source_ip, 443);
-            
+
             assert!(!detector.is_port_scan(source_ip));
         }
 
         #[test]
         fn test_ddos_detection_syn_flood() {
             let mut detector = ThreatDetector::new();
-            
+
             // Simulate SYN flood
             for i in 0..1000 {
                 let packet = create_syn_packet(format!("192.168.1.{}", i % 255));
                 detector.analyze_packet(&packet);
             }
-            
+
             assert!(detector.is_ddos_active());
             assert_eq!(detector.get_threat_type(), ThreatType::SynFlood);
         }
@@ -224,13 +244,13 @@ mod tests {
         #[test]
         fn test_ddos_detection_normal_traffic() {
             let mut detector = ThreatDetector::new();
-            
+
             // Normal traffic pattern
             for i in 0..10 {
                 let packet = create_tcp_packet(format!("192.168.1.{}", i));
                 detector.analyze_packet(&packet);
             }
-            
+
             assert!(!detector.is_ddos_active());
         }
 
@@ -238,7 +258,7 @@ mod tests {
         fn test_anomaly_detection_unusual_port() {
             let mut detector = ThreatDetector::new();
             let packet = create_tcp_packet_with_port("192.168.1.100", 31337); // Elite port
-            
+
             let anomaly = detector.detect_anomaly(&packet);
             assert!(anomaly.is_some());
             assert_eq!(anomaly.unwrap().severity, Severity::Medium);
@@ -254,7 +274,7 @@ mod tests {
                 src_ip: "192.168.1.1".to_string(),
                 dst_ip: "192.168.1.2".to_string(),
             };
-            
+
             let anomaly = detector.detect_anomaly(&packet);
             assert!(anomaly.is_some());
             assert_eq!(anomaly.unwrap().severity, Severity::High);
@@ -263,20 +283,13 @@ mod tests {
         #[test]
         fn test_threat_aggregation() {
             let mut detector = ThreatDetector::new();
-            
+
             // Add multiple threat indicators
             detector.add_threat_indicator(ThreatIndicator::PortScan);
             detector.add_threat_indicator(ThreatIndicator::HighTrafficRate);
             detector.add_threat_indicator(ThreatIndicator::SuspiciousPayload);
-            
-            assert_eq!(detector.get_threat_level(), ThreatLevel::Critical);
-        }
 
-        #[test]
-        #[should_panic(expected = "Detector not initialized")]
-        fn test_uninitialized_detector() {
-            let detector: Option<ThreatDetector> = None;
-            detector.expect("Detector not initialized").is_ddos_active();
+            assert_eq!(detector.get_threat_level(), ThreatLevel::Critical);
         }
     }
 
@@ -313,7 +326,7 @@ mod tests {
         fn test_classify_dns_query() {
             let packet = create_dns_query_packet("example.com");
             assert_eq!(classify_protocol(&packet), Protocol::DNS);
-            assert_eq!(extract_dns_query(&packet), Some("example.com"));
+            assert_eq!(extract_dns_query(&packet).as_deref(), Some("example.com"));
         }
 
         #[test]
@@ -326,12 +339,12 @@ mod tests {
         #[test]
         fn test_classify_ssh_port_based() {
             use optimized::classify_protocol_optimized;
-            
+
             // Create a TCP packet on port 22 (SSH)
             let mut packet_data = vec![0u8; 60];
-            packet_data[0] = 0x45;  // IPv4, header length 20
-            packet_data[9] = 0x06;  // TCP protocol
-            // Source IP
+            packet_data[0] = 0x45; // IPv4, header length 20
+            packet_data[9] = 0x06; // TCP protocol
+                                   // Source IP
             packet_data[12] = 192;
             packet_data[13] = 168;
             packet_data[14] = 1;
@@ -349,7 +362,7 @@ mod tests {
             packet_data[23] = 22;
             // TCP header length
             packet_data[32] = 0x50;
-            
+
             let packet = Packet {
                 data: packet_data,
                 length: 60,
@@ -357,7 +370,7 @@ mod tests {
                 src_ip: "192.168.1.100".to_string(),
                 dst_ip: "192.168.1.200".to_string(),
             };
-            
+
             // Test with optimized classifier that has port-based detection
             assert_eq!(classify_protocol_optimized(&packet), Protocol::SSH);
         }
@@ -365,17 +378,19 @@ mod tests {
         #[test]
         fn test_classify_https_port_based() {
             use optimized::classify_protocol_optimized;
-            
+
             // Create a TCP packet on port 443 (HTTPS)
             let mut packet_data = vec![0u8; 60];
-            packet_data[0] = 0x45;  // IPv4
-            packet_data[9] = 0x06;  // TCP
+            packet_data[0] = 0x45; // IPv4
+            packet_data[9] = 0x06; // TCP
             packet_data[12..16].copy_from_slice(&[192, 168, 1, 100]); // Source IP
             packet_data[16..20].copy_from_slice(&[192, 168, 1, 200]); // Dest IP
-            packet_data[20] = 48; packet_data[21] = 57; // Source port 12345
-            packet_data[22] = 1; packet_data[23] = 187; // Dest port 443
+            packet_data[20] = 48;
+            packet_data[21] = 57; // Source port 12345
+            packet_data[22] = 1;
+            packet_data[23] = 187; // Dest port 443
             packet_data[32] = 0x50; // TCP header length
-            
+
             let packet = Packet {
                 data: packet_data,
                 length: 60,
@@ -383,24 +398,26 @@ mod tests {
                 src_ip: "192.168.1.100".to_string(),
                 dst_ip: "192.168.1.200".to_string(),
             };
-            
+
             assert_eq!(classify_protocol_optimized(&packet), Protocol::HTTPS);
         }
 
         #[test]
         fn test_classify_http_port_based() {
             use optimized::classify_protocol_optimized;
-            
+
             // Create a TCP packet on port 80 (HTTP)
             let mut packet_data = vec![0u8; 60];
-            packet_data[0] = 0x45;  // IPv4
-            packet_data[9] = 0x06;  // TCP
+            packet_data[0] = 0x45; // IPv4
+            packet_data[9] = 0x06; // TCP
             packet_data[12..16].copy_from_slice(&[192, 168, 1, 100]); // Source IP
             packet_data[16..20].copy_from_slice(&[192, 168, 1, 200]); // Dest IP
-            packet_data[20] = 48; packet_data[21] = 57; // Source port 12345
-            packet_data[22] = 0; packet_data[23] = 80; // Dest port 80
+            packet_data[20] = 48;
+            packet_data[21] = 57; // Source port 12345
+            packet_data[22] = 0;
+            packet_data[23] = 80; // Dest port 80
             packet_data[32] = 0x50; // TCP header length
-            
+
             let packet = Packet {
                 data: packet_data,
                 length: 60,
@@ -408,7 +425,7 @@ mod tests {
                 src_ip: "192.168.1.100".to_string(),
                 dst_ip: "192.168.1.200".to_string(),
             };
-            
+
             assert_eq!(classify_protocol_optimized(&packet), Protocol::HTTP);
         }
 
@@ -427,19 +444,18 @@ mod tests {
         #[test]
         fn test_protocol_statistics() {
             let mut stats = ProtocolStats::new();
-            
+
             stats.add_packet(Protocol::TCP, 1500);
             stats.add_packet(Protocol::TCP, 800);
             stats.add_packet(Protocol::UDP, 512);
             stats.add_packet(Protocol::HTTP, 2048);
-            
+
             assert_eq!(stats.get_count(Protocol::TCP), 2);
             assert_eq!(stats.get_total_bytes(Protocol::TCP), 2300);
             assert_eq!(stats.get_percentage(Protocol::HTTP), 25.0);
         }
 
         #[test]
-        #[should_panic(expected = "Invalid protocol bytes")]
         fn test_classify_with_invalid_size() {
             let packet = Packet {
                 data: vec![],
@@ -448,13 +464,22 @@ mod tests {
                 src_ip: "192.168.1.1".to_string(),
                 dst_ip: "192.168.1.2".to_string(),
             };
-            classify_protocol(&packet);
+            // Bytes off the wire must never be able to crash the monitor.
+            assert_eq!(classify_protocol(&packet), Protocol::Unknown);
+            assert_eq!(
+                optimized::classify_protocol_optimized(&packet),
+                Protocol::Unknown
+            );
         }
     }
 }
 
-// Placeholder types and functions that will be implemented
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+/// Application or transport protocol a packet was classified as.
+///
+/// New protocols are added over time, so matches outside this crate need a
+/// wildcard arm.
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Protocol {
     TCP,
     UDP,
@@ -462,7 +487,45 @@ pub enum Protocol {
     HTTPS,
     DNS,
     SSH,
+    /// ICMP and ICMPv6 (ping, unreachable, neighbour discovery, ...).
+    ICMP,
+    /// QUIC connection setup (HTTP/3).
+    QUIC,
+    NTP,
+    /// DHCP and DHCPv6.
+    DHCP,
+    /// Multicast DNS (Bonjour/Avahi).
+    MDNS,
+    /// SSDP / UPnP discovery.
+    SSDP,
     Unknown,
+}
+
+impl Protocol {
+    /// Every protocol, in display order.
+    pub const ALL: [Protocol; 13] = [
+        Protocol::TCP,
+        Protocol::UDP,
+        Protocol::HTTP,
+        Protocol::HTTPS,
+        Protocol::DNS,
+        Protocol::SSH,
+        Protocol::ICMP,
+        Protocol::QUIC,
+        Protocol::NTP,
+        Protocol::DHCP,
+        Protocol::MDNS,
+        Protocol::SSDP,
+        Protocol::Unknown,
+    ];
+
+    /// Position in [`Protocol::ALL`]; a dense index for per-protocol arrays.
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|p| *p == self)
+            .unwrap_or(Self::ALL.len() - 1)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -497,8 +560,8 @@ pub struct RainManager {
 
 impl RainManager {
     pub fn new(width: usize, height: usize) -> Self {
-        Self { 
-            width, 
+        Self {
+            width,
             height,
             columns: Vec::new(),
             faded_columns: Vec::new(),
@@ -526,7 +589,6 @@ impl RainManager {
     }
 }
 
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum ThreatType {
     SynFlood,
@@ -534,7 +596,7 @@ pub enum ThreatType {
     Unknown,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Severity {
     Low,
     Medium,
@@ -551,7 +613,7 @@ pub enum ThreatIndicator {
     SuspiciousPayload,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum ThreatLevel {
     Low,
     Medium,
@@ -564,6 +626,12 @@ pub struct ProtocolStats {
     bytes: HashMap<Protocol, usize>,
 }
 
+impl Default for ProtocolStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProtocolStats {
     pub fn new() -> Self {
         Self {
@@ -574,7 +642,10 @@ impl ProtocolStats {
 
     pub fn add_packet(&mut self, protocol: Protocol, packet_bytes: usize) {
         *self.counts.entry(protocol).or_insert(0) += 1;
-        *self.bytes.entry(protocol).or_insert(0) += packet_bytes;
+        // Saturating: a 32-bit build passes 4 GB quickly, and a corrupt
+        // capture header can claim any length.
+        let bytes = self.bytes.entry(protocol).or_insert(0);
+        *bytes = bytes.saturating_add(packet_bytes);
     }
 
     pub fn get_count(&self, protocol: Protocol) -> usize {
@@ -583,6 +654,23 @@ impl ProtocolStats {
 
     pub fn get_total_bytes(&self, protocol: Protocol) -> usize {
         *self.bytes.get(&protocol).unwrap_or(&0)
+    }
+
+    /// Packets counted across every protocol.
+    pub fn total_packets(&self) -> usize {
+        self.counts.values().sum()
+    }
+
+    /// Protocols that have been seen, busiest first; ties in display order.
+    pub fn ranked(&self) -> Vec<(Protocol, usize)> {
+        let mut seen: Vec<(Protocol, usize)> = self
+            .counts
+            .iter()
+            .filter(|(_, &n)| n > 0)
+            .map(|(p, &n)| (*p, n))
+            .collect();
+        seen.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        seen
     }
 
     pub fn get_percentage(&self, protocol: Protocol) -> f32 {
@@ -595,42 +683,42 @@ impl ProtocolStats {
     }
 }
 
-
 pub fn calculate_fall_speed(column: &RainColumn) -> f32 {
     // Base speed is influenced by intensity
     let base_speed = column.speed * column.intensity;
-    
+
     // Check if column contains threat indicators (exclamation marks)
-    let has_threat = column.chars.iter().any(|&c| c == '!');
-    
+    let has_threat = column.chars.contains(&'!');
+
     if has_threat {
         // Threats fall faster - more than 2.0
         base_speed * 3.0
     } else {
         // Normal speed varies between 0.0 and 2.0 based on intensity
-        (base_speed * 2.0).min(2.0).max(0.1)
+        // min-then-max rather than clamp(): clamp panics on a NaN speed.
+        #[allow(clippy::manual_clamp)]
+        let speed = (base_speed * 2.0).min(2.0).max(0.1);
+        speed
     }
 }
 
 pub fn fade_character(char: &mut MatrixChar) {
     // Fade intensity by a fixed amount
     char.intensity = (char.intensity - 0.1).max(0.0);
-    
+
     // Increment age
     char.age += 1;
 }
 
 pub fn calculate_rain_density(traffic_rate: f32) -> f32 {
-    if traffic_rate < 0.0 {
-        panic!("Negative traffic rate");
+    // Map traffic rate to density (0.0 to 1.0); 10000 packets/sec is maximum
+    // density. A negative or NaN rate is treated as no traffic rather than
+    // aborting the program.
+    if traffic_rate.is_nan() || traffic_rate <= 0.0 {
+        return 0.0;
     }
-    
-    // Map traffic rate to density (0.0 to 1.0)
-    // Assume 10000 packets/sec is maximum density
-    let normalized = traffic_rate / 10000.0;
-    normalized.min(1.0)
+    (traffic_rate / 10000.0).min(1.0)
 }
-
 
 pub fn get_http_method(packet: &Packet) -> Option<&str> {
     if packet.data.starts_with(b"GET ") {
@@ -647,12 +735,40 @@ pub fn get_http_method(packet: &Packet) -> Option<&str> {
 }
 
 pub fn is_tls_handshake(packet: &Packet) -> bool {
-    packet.data.len() > 0 && packet.data[0] == 0x16
+    !packet.data.is_empty() && packet.data[0] == 0x16
 }
 
-pub fn extract_dns_query(_packet: &Packet) -> Option<&str> {
-    // For the test, it expects "example.com"
-    Some("example.com")
+/// Extract the queried name from a DNS packet.
+///
+/// Accepts a full frame/IP packet carrying DNS, or a bare DNS message.
+pub fn extract_dns_query(packet: &Packet) -> Option<String> {
+    if let Ok(decoded) = decode::decode_guess(&packet.data) {
+        if let Some(name) = dns::question_name(decoded.payload) {
+            return Some(name);
+        }
+    }
+    dns::question_name(&packet.data)
+}
+
+impl Protocol {
+    /// Short fixed label for logs and the UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            Protocol::TCP => "TCP",
+            Protocol::UDP => "UDP",
+            Protocol::HTTP => "HTTP",
+            Protocol::HTTPS => "HTTPS",
+            Protocol::DNS => "DNS",
+            Protocol::SSH => "SSH",
+            Protocol::ICMP => "ICMP",
+            Protocol::QUIC => "QUIC",
+            Protocol::NTP => "NTP",
+            Protocol::DHCP => "DHCP",
+            Protocol::MDNS => "MDNS",
+            Protocol::SSDP => "SSDP",
+            Protocol::Unknown => "???",
+        }
+    }
 }
 
 // Helper functions for tests
@@ -662,6 +778,8 @@ fn create_syn_packet(ip: String) -> Packet {
     let mut data = vec![0x45, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06];
     // Add more bytes to make it look like a real packet
     data.extend_from_slice(&[0x00; 50]);
+    data[32] = 0x50; // TCP data offset = 5 words
+    data[33] = 0x02; // SYN - the helper previously never set the flag it is named after
     Packet {
         data,
         length: 60,
@@ -697,8 +815,9 @@ fn create_tcp_packet_with_port(ip: &str, port: u16) -> Packet {
     let port_bytes = port.to_be_bytes();
     data.push(port_bytes[0]); // Dest port high byte (22)
     data.push(port_bytes[1]); // Dest port low byte (23)
-    // Fill rest with zeros
+                              // Fill rest with zeros
     data.extend_from_slice(&[0x00; 36]);
+    data[32] = 0x50; // TCP data offset = 5 words
     Packet {
         data,
         length: 60,
@@ -752,9 +871,10 @@ fn create_tls_handshake_packet() -> Packet {
 #[cfg(test)]
 fn create_dns_query_packet(_domain: &str) -> Packet {
     // Create a simplified DNS query packet
-    let mut data = vec![0x00, 0x00, 0x01, 0x00]; // DNS header flags
-    data.extend_from_slice(&[0x00; 8]); // Rest of DNS header
-    // Add domain name in DNS format (simplified)
+    let mut data = vec![0x00, 0x00, 0x01, 0x00]; // DNS id + flags (recursion desired)
+    data.extend_from_slice(&[0x00, 0x01]); // QDCOUNT = 1
+    data.extend_from_slice(&[0x00; 6]); // AN/NS/AR counts
+                                        // Add domain name in DNS format (simplified)
     data.extend_from_slice(&[0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65]); // "example"
     data.extend_from_slice(&[0x03, 0x63, 0x6f, 0x6d]); // "com"
     data.push(0x00); // End of domain

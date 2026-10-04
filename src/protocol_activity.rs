@@ -1,40 +1,41 @@
 // Protocol activity tracking for time-series visualization
 
-use std::collections::VecDeque;
 use crate::Protocol;
+use std::collections::VecDeque;
 
 const HISTORY_SIZE: usize = 60; // Keep 60 time slices
+const PROTOCOLS: usize = Protocol::ALL.len();
 
-#[derive(Debug, Clone)]
+/// Packets per protocol during one time slice.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolSnapshot {
-    pub tcp: u64,
-    pub udp: u64,
-    pub http: u64,
-    pub https: u64,
-    pub dns: u64,
-    pub ssh: u64,
-    pub unknown: u64,
+    counts: [u64; PROTOCOLS],
     pub total: u64,
 }
 
 impl ProtocolSnapshot {
     fn new() -> Self {
         Self {
-            tcp: 0,
-            udp: 0,
-            http: 0,
-            https: 0,
-            dns: 0,
-            ssh: 0,
-            unknown: 0,
+            counts: [0; PROTOCOLS],
             total: 0,
         }
+    }
+
+    /// Packets of `protocol` in this slice.
+    pub fn get(&self, protocol: Protocol) -> u64 {
+        self.counts[protocol.index()]
     }
 }
 
 pub struct ProtocolActivityTracker {
     history: VecDeque<ProtocolSnapshot>,
     current: ProtocolSnapshot,
+}
+
+impl Default for ProtocolActivityTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProtocolActivityTracker {
@@ -44,78 +45,98 @@ impl ProtocolActivityTracker {
             current: ProtocolSnapshot::new(),
         }
     }
-    
+
     pub fn record_packet(&mut self, protocol: Protocol) {
-        match protocol {
-            Protocol::TCP => self.current.tcp += 1,
-            Protocol::UDP => self.current.udp += 1,
-            Protocol::HTTP => self.current.http += 1,
-            Protocol::HTTPS => self.current.https += 1,
-            Protocol::DNS => self.current.dns += 1,
-            Protocol::SSH => self.current.ssh += 1,
-            Protocol::Unknown => self.current.unknown += 1,
-        }
+        self.current.counts[protocol.index()] += 1;
         self.current.total += 1;
     }
-    
+
     pub fn tick(&mut self) {
         // Push current snapshot to history and reset
-        self.history.push_back(self.current.clone());
+        self.history.push_back(std::mem::replace(
+            &mut self.current,
+            ProtocolSnapshot::new(),
+        ));
         if self.history.len() > HISTORY_SIZE {
             self.history.pop_front();
         }
-        self.current = ProtocolSnapshot::new();
     }
-    
+
     pub fn get_history(&self) -> &VecDeque<ProtocolSnapshot> {
         &self.history
     }
-    
+
+    /// The last 20 slices for `protocol`, oldest first, zero-padded at the
+    /// front and ending with the slice still being filled.
     pub fn get_sparkline_data(&self, protocol: Protocol) -> Vec<u64> {
-        // Include current snapshot for real-time display
-        let mut data: Vec<u64> = self.history.iter().map(|snapshot| {
-            match protocol {
-                Protocol::TCP => snapshot.tcp,
-                Protocol::UDP => snapshot.udp,
-                Protocol::HTTP => snapshot.http,
-                Protocol::HTTPS => snapshot.https,
-                Protocol::DNS => snapshot.dns,
-                Protocol::SSH => snapshot.ssh,
-                Protocol::Unknown => snapshot.unknown,
-            }
-        }).collect();
-        
-        // Add current snapshot value for immediate feedback
-        data.push(match protocol {
-            Protocol::TCP => self.current.tcp,
-            Protocol::UDP => self.current.udp,
-            Protocol::HTTP => self.current.http,
-            Protocol::HTTPS => self.current.https,
-            Protocol::DNS => self.current.dns,
-            Protocol::SSH => self.current.ssh,
-            Protocol::Unknown => self.current.unknown,
-        });
-        
-        // Pad with zeros at the beginning if we don't have enough history
-        while data.len() < 20 {
-            data.insert(0, 0);
+        const POINTS: usize = 20;
+        let mut data: Vec<u64> = self.history.iter().map(|s| s.get(protocol)).collect();
+        data.push(self.current.get(protocol));
+        if data.len() > POINTS {
+            data.drain(..data.len() - POINTS);
         }
-        
-        // Return last 20 values for display
-        if data.len() > 20 {
-            data.split_off(data.len() - 20)
-        } else {
-            data
-        }
+        let mut padded = vec![0; POINTS - data.len()];
+        padded.extend(data);
+        padded
     }
-    
+
     pub fn get_max_value(&self) -> u64 {
-        let history_max = self.history.iter()
-            .map(|s| s.total)
-            .max()
-            .unwrap_or(0);
-        
+        let history_max = self.history.iter().map(|s| s.total).max().unwrap_or(0);
+
         // Include current snapshot in max calculation
         history_max.max(self.current.total).max(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_protocol_has_its_own_series() {
+        let mut t = ProtocolActivityTracker::new();
+        for (i, p) in Protocol::ALL.iter().enumerate() {
+            for _ in 0..=i {
+                t.record_packet(*p);
+            }
+        }
+        for (i, p) in Protocol::ALL.iter().enumerate() {
+            let data = t.get_sparkline_data(*p);
+            assert_eq!(data.len(), 20);
+            assert_eq!(*data.last().unwrap(), i as u64 + 1, "{p:?}");
+            assert!(data[..19].iter().all(|&v| v == 0));
+        }
+        t.tick();
+        assert_eq!(t.get_history()[0].get(Protocol::QUIC), 8);
+        assert_eq!(t.get_history()[0].total, (1..=13).sum::<u64>());
+        assert_eq!(
+            *t.get_sparkline_data(Protocol::QUIC).last().unwrap(),
+            0,
+            "new slice starts empty"
+        );
+    }
+
+    #[test]
+    fn history_is_bounded_and_sparkline_shows_the_latest_twenty() {
+        let mut t = ProtocolActivityTracker::new();
+        for i in 0..200u64 {
+            for _ in 0..i {
+                t.record_packet(Protocol::DNS);
+            }
+            t.tick();
+        }
+        assert_eq!(t.get_history().len(), HISTORY_SIZE);
+        let data = t.get_sparkline_data(Protocol::DNS);
+        assert_eq!(data.len(), 20);
+        assert_eq!(data[18], 199);
+        assert_eq!(data[19], 0);
+        assert_eq!(t.get_max_value(), 199);
+    }
+
+    #[test]
+    fn protocol_index_matches_all() {
+        for (i, p) in Protocol::ALL.iter().enumerate() {
+            assert_eq!(p.index(), i);
+        }
     }
 }
