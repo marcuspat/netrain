@@ -178,8 +178,7 @@ impl AppState {
                 // first) -> all. Stats count paused packets too; the log does
                 // not, so ranking by stats alone can select a protocol with
                 // zero visible lines and blank the log (gate r1).
-                let in_log: Vec<Protocol> =
-                    self.packet_log.iter().map(|e| e.protocol).collect();
+                let in_log: Vec<Protocol> = self.packet_log.iter().map(|e| e.protocol).collect();
                 let seen: Vec<Protocol> = self
                     .stats
                     .ranked()
