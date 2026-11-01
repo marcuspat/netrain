@@ -71,12 +71,6 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-latest
     steps:
-      - name: Dispatch must run on a tag
-        if: github.event_name == 'workflow_dispatch' && github.ref_type != 'tag'
-        run: |
-          echo "::error::start the dispatch with the tag as the ref: gh workflow run release-binaries.yml --ref <tag>" >&2
-          exit 1
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.ref }}
@@ -85,7 +79,6 @@ jobs:
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
-        with:
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -95,7 +88,6 @@ jobs:
       - name: Install musl tooling
         if: matrix.musl
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-
       - name: Install libpcap (linux)
         if: matrix.pcap
         run: {ROOT} apt-get update && {ROOT} apt-get install -y libpcap-dev
@@ -127,14 +119,11 @@ jobs:
           fi
           cp "$1" "dist/netrain-${{ matrix.target }}.cdx.json"
 
-      # SLSA build provenance: binds the binary's digest to this workflow run
-      # and commit.
       # Attestations name the RUN's ref/sha, so only sign when the run is
       # the tag itself: a tag push, or a dispatch started with
       #   gh workflow run release-binaries.yml --ref vX.Y.Z
-      # (a dispatch from a branch would otherwise attest that branch's sha,
-      # not the tag actually built). Never on pull_request: fork PRs have no
-      # OIDC and unmerged code shouldn't be attested.
+      # Never on pull_request: fork PRs have no OIDC and unmerged code
+      # shouldn't be attested.
       - name: Attest build provenance
         if: github.event_name != 'pull_request' && github.ref_type == 'tag'
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
