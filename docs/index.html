@@ -5,10 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>netrain — marcuspat</title>
 <meta name="description" content="Matrix-style network packet monitor with real-time threat detection. DDoS/port scan detection, terminal visualizations, built in Rust.">
+<link rel="canonical" href="https://marcuspat.github.io/netrain/">
 <meta property="og:title" content="netrain">
 <meta property="og:description" content="Matrix-style network packet monitor with real-time threat detection. DDoS/port scan detection, terminal visualizations, built in Rust.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://marcuspat.github.io/netrain/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="netrain">
+<meta name="twitter:description" content="Matrix-style network packet monitor with real-time threat detection. DDoS/port scan detection, terminal visualizations, built in Rust.">
+<meta name="robots" content="index,follow">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='#22d3ee' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='5' fill='#a78bfa'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -63,6 +68,9 @@ footer a:hover{color:var(--a1)}
 @media(max-width:640px){.nav{padding:12px 16px}.hero-inner{padding:44px 18px 32px}.stats{gap:14px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition:none !important}}
 </style>
+<style>details{border:1px solid var(--line);border-radius:11px;padding:14px 18px;background:var(--card)}details+details{margin-top:10px}summary{cursor:pointer;font-weight:600;font-size:14.5px}summary:hover{color:var(--a1)}details p{margin-top:10px;font-size:13.8px;color:var(--mut)}</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "SoftwareSourceCode", "name": "netrain", "description": "Matrix-style network packet monitor with real-time threat detection. DDoS/port scan detection, terminal visualizations, built in Rust.", "url": "https://marcuspat.github.io/netrain/", "codeRepository": "https://github.com/marcuspat/netrain", "programmingLanguage": "Rust", "keywords": "cybersecurity, ddos, matrix, network-monitoring, network-security, packet-capture, pcap, port-scan, ratatui, real-time, rust, security", "author": {"@type": "Person", "name": "marcuspat", "url": "https://github.com/marcuspat"}, "maintainer": {"@type": "Person", "name": "marcuspat", "url": "https://github.com/marcuspat"}, "dateModified": "2026-11-01T22:45:18Z", "version": "v0.2.10", "isAccessibleForFree": true, "license": "https://github.com/marcuspat/netrain/blob/HEAD/LICENSE"}, {"@type": "WebSite", "name": "netrain — marcuspat", "url": "https://marcuspat.github.io/netrain/", "publisher": {"@type": "Person", "name": "marcuspat"}}, {"@type": "Person", "name": "marcuspat", "url": "https://github.com/marcuspat", "description": "Agentic Engineer — Platform Engineering × AI-assisted development"}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What is netrain?", "acceptedAnswer": {"@type": "Answer", "text": "Matrix-style network packet monitor with real-time threat detection."}}, {"@type": "Question", "name": "Who maintains netrain?", "acceptedAnswer": {"@type": "Answer", "text": "marcuspat — Agentic Engineer — Platform Engineering × AI-assisted development. Source code and issues live on GitHub at github.com/marcuspat/netrain."}}, {"@type": "Question", "name": "How do I install netrain?", "acceptedAnswer": {"@type": "Answer", "text": "Run `cargo install netrain` (via crates.io). Full instructions in the repository README."}}]}</script>
 </head>
 <body>
 <header class="nav">
@@ -100,11 +108,12 @@ footer a:hover{color:var(--a1)}
 <main>
 <section id="about"><h2>What it does</h2><div class="cards"><div class="card"><h3>Matrix-style packet monitor</h3><p>Live traffic rendered as terminal rain — you see the network the way the movies promised.</p></div><div class="card"><h3>Real threat detection</h3><p>DDoS and port-scan detection running on the same stream that feeds the visuals.</p></div><div class="card"><h3>Built in Rust</h3><p>Terminal visualizations that stay responsive under load — ratatui, not a browser tab.</p></div></div></section>
 <section id="install"><h2>Install</h2><div class="install"><pre><code>cargo install netrain</code><button class="copy" onclick="cp(this)">copy</button></pre><p style="color:var(--mut);font-size:12.5px;margin-top:10px">via crates.io</p></div></section>
+<section id="faq"><h2>FAQ</h2><div class="faq"><details><summary>What is netrain?</summary><p>Matrix-style network packet monitor with real-time threat detection.</p></details><details><summary>Who maintains netrain?</summary><p>marcuspat — Agentic Engineer — Platform Engineering × AI-assisted development. Source code and issues live on GitHub at github.com/marcuspat/netrain.</p></details><details><summary>How do I install netrain?</summary><p>Run `cargo install netrain` (via crates.io). Full instructions in the repository README.</p></details></div></section>
 <section id="more"><h2>Explore</h2><div class="links">
 <a href="https://github.com/marcuspat/netrain#readme">README <span class="arr">→</span></a>
 <a href="https://github.com/marcuspat/netrain/releases">Releases <span class="arr">→</span></a>
 <a href="https://github.com/marcuspat/netrain/issues">Issues <span class="arr">→</span></a>
-<a href="https://github.com/marcuspat/netrain/license">License <span class="arr">→</span></a>
+<a href="https://github.com/marcuspat/netrain/blob/HEAD/LICENSE">License <span class="arr">→</span></a>
 </div></section>
 </main>
 <footer>
