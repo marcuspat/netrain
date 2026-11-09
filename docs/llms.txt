@@ -1,0 +1,15 @@
+# netrain
+
+> Matrix-style network packet monitor with real-time threat detection. DDoS/port scan detection, terminal visualizations, built in Rust.
+
+netrain is maintained by marcuspat (Agentic Engineer — Platform Engineering × AI-assisted development).
+
+## Links
+
+- [Landing page](https://marcuspat.github.io/netrain/): overview, features, FAQ
+- [Source code](https://github.com/marcuspat/netrain): README, issues, releases
+## Install
+
+```
+cargo install netrain
+```
