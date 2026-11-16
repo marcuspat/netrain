@@ -51,6 +51,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      - name: Install libpcap (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
       # Fail fast on a tag that does not compile before burning matrix minutes.
       - name: cargo build (host)
         run: cargo build --release --locked
