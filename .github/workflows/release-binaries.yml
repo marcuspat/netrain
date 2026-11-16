@@ -94,7 +94,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Install libpcap (linux)
         if: matrix.pcap
-        run: {ROOT} apt-get update && {ROOT} apt-get install -y libpcap-dev
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} --bin netrain
