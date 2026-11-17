@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 0.1.5)'
+        description: 'Version to publish (must equal the [package] version in Cargo.toml)'
         required: true
-        default: '0.1.5'
       dry_run:
         description: 'Dry run only (do not actually publish)'
         required: false
@@ -17,9 +16,30 @@ jobs:
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
+    env:
+      # Routed through env so the raw dispatch input never lands in shell text.
+      VERSION_INPUT: ${{ github.event.inputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Validate, never mutate: the manifest is the source of truth. Version
+      # bumps land via PR (like chore/crates-publish-1.0.0), which also keeps
+      # Cargo.lock fresh for --locked builds. CI must not sed or push to main.
+      - name: Validate version input against Cargo.toml
+        run: |
+          set -euo pipefail
+          if ! grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$' <<<"$VERSION_INPUT"; then
+            echo "::error::version input '$VERSION_INPUT' is not strict semver (X.Y.Z plus optional -prerelease / +build metadata)"
+            exit 1
+          fi
+          manifest_version="$(grep -m1 -E '^version = ' Cargo.toml | sed -E 's/^version = "([^"]*)".*/\1/')"
+          if [ "$manifest_version" != "$VERSION_INPUT" ]; then
+            echo "::error::Refusing to publish: inputs.version ($VERSION_INPUT) != Cargo.toml [package] version ($manifest_version)."
+            echo "::error::Bump Cargo.toml (and Cargo.lock) to $VERSION_INPUT via a PR, merge it, then re-dispatch."
+            exit 1
+          fi
+          echo "inputs.version $VERSION_INPUT matches Cargo.toml [package] version $manifest_version"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -29,14 +49,6 @@ jobs:
       # netrain links libpcap; needed before any cargo build (see ci.yml).
       - name: Install libpcap (linux)
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
-
-      - name: Update version in Cargo.toml
-        run: |
-          sed -i "s/^version = .*/version = \"${{ github.event.inputs.version }}\"/" Cargo.toml
-          git config --global user.name "Release Bot"
-          git config --global user.email "noreply@github.com"
-          git add Cargo.toml
-          git commit -m "Update version to ${{ github.event.inputs.version }}" || true
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -72,9 +84,3 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish
-
-      - name: Create tag
-        if: ${{ github.event.inputs.dry_run == 'false' }}
-        run: |
-          git tag -a v${{ github.event.inputs.version }} -m "Release v${{ github.event.inputs.version }}"
-          git push origin v${{ github.event.inputs.version }}
