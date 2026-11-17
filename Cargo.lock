@@ -698,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "netrain"
-version = "0.2.10"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
