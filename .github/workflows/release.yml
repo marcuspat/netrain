@@ -10,7 +10,34 @@ permissions:
   contents: write
 
 jobs:
+  guard:
+    name: guard tag against main HEAD and manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Release guard (2026-11-17, fleet sweep): a mis-cut tag must never
+      # release. Refuse unless the tag version equals the manifest version
+      # AND the tagged commit is main HEAD exactly — releases are cut from
+      # main HEAD only, never re-tagged from stale commits. crates.io
+      # publishing stays manual (manual-publish validates the same way).
+      - name: Refuse v-tags that are not main HEAD at manifest version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          ver="$(grep -m1 -E '^version = ' Cargo.toml | sed -E 's/^version = "([^"]*)".*/\1/')"
+          if [ "$ver" != "${tag#v}" ]; then
+            echo "::error::refusing: tag $tag does not match Cargo.toml version $ver"
+            exit 1
+          fi
+          git fetch -q origin main
+          main_head="$(git rev-parse origin/main)"
+          if [ "$GITHUB_SHA" != "$main_head" ]; then
+            echo "::error::refusing: tagged commit ${GITHUB_SHA::7} is not main HEAD (${main_head::7}) — releases are cut from main HEAD only"
+            exit 1
+          fi
+
   build:
+    needs: guard
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
