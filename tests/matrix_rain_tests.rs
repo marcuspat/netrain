@@ -210,6 +210,13 @@ fn test_matrix_rain_performance() {
     let elapsed = start.elapsed();
     let ms_per_update = elapsed.as_millis() as f64 / 100.0;
 
-    // Should maintain good performance (< 5ms per update)
-    assert!(ms_per_update < 5.0);
+    // Should maintain good performance (< 5ms per update).
+    // macOS GitHub runners show high per-update timing variance, so allow a
+    // more generous 10ms bound there (flaky failures observed 2026-11-16:
+    // fail, fail, pass-on-third at the 5ms bound; release run 43979559077).
+    #[cfg(target_os = "macos")]
+    let bound_ms = 10.0;
+    #[cfg(not(target_os = "macos"))]
+    let bound_ms = 5.0;
+    assert!(ms_per_update < bound_ms);
 }
