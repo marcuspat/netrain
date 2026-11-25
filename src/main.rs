@@ -713,7 +713,7 @@ fn run(cli: &Cli) -> Result<()> {
         let frame_start = Instant::now();
 
         // Fold everything the capture thread queued since the last frame.
-        let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
+        let timestamp = jiff::ZonedDateTime::now().strftime("%H:%M:%S").to_string();
         app.drain(
             &capture_rx,
             DRAIN_BUDGET,

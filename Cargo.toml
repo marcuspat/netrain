@@ -1,6 +1,6 @@
 [package]
 name = "netrain"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.88"
 authors = ["NetRain Contributors"]
@@ -19,7 +19,7 @@ pcap = "1.1"
 ratatui = "0.29"
 crossterm = "0.28"
 anyhow = "1.0"
-chrono = "0.4"
+jiff = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rand = "0.8"
