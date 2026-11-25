@@ -56,11 +56,19 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked --test headless_tests --no-run
-      # NETRAIN_CI_LIVE: in CI the test's skip paths panic instead of returning
-      # (gate r1) — a green job proves the capture ran, never that it quietly
-      # degraded into a no-op
-      - run: sudo -E env "PATH=$PATH" NETRAIN_CI_LIVE=1 cargo test --locked --test headless_tests live_capture -- --nocapture
+      - name: Run loopback capture and privilege-drop test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Build as the runner user so rustup uses its configured toolchain.
+          test_binary="$(cargo test --locked --test headless_tests --no-run --message-format=json | jq -ser '
+            map(select(.reason == "compiler-artifact" and .target.name == "headless_tests" and .profile.test and .executable != null))
+            | if length == 1 then .[0].executable else error("expected one headless_tests executable") end
+          ')"
+          test_name=live_capture_drops_root_and_keeps_working
+          "$test_binary" --list --exact "$test_name" | grep -Fx "$test_name: test"
+          # NETRAIN_CI_LIVE makes unmet capture preconditions fail the test.
+          sudo env NETRAIN_CI_LIVE=1 timeout --kill-after=5s 60s "$test_binary" --exact "$test_name" --nocapture
 
   msrv:
     name: minimum Rust version
